@@ -13,12 +13,48 @@ export class Debris {
   constructor(scene) {
     this.scene = scene;
     this.items = [];
+    this.toppling = [];
+  }
+
+  // Tips an object over around its base (its origin), falling in direction (dx, dz).
+  topple(obj, dx, dz, speed) {
+    const len = Math.hypot(dx, dz) || 1;
+    // axis is horizontal and perpendicular to the fall direction
+    const axis = new THREE.Vector3(dz / len, 0, -dx / len);
+    this.toppling.push({ obj, axis, angle: 0, w: 0.6 + Math.min(3, speed * 0.25), q0: obj.quaternion.clone(), bounces: 0 });
+  }
+
+  // A building crumbles into a heap of big chunks that fall and settle as rubble.
+  collapse(b, color, particles) {
+    const nx = Math.max(2, Math.round(b.w / 2.6));
+    const ny = Math.max(2, Math.round(b.h / 2.6));
+    const nz = 3;
+    const sx = b.w / nx, sy = b.h / ny, sz = b.depth / nz;
+    const x0 = b.cx - b.w / 2, z0 = b.z - b.depth / 2;
+    const cols = [color, color, EGA.dgray, EGA.lgray];
+    let k = 0;
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < ny; j++) {
+        for (let l = 0; l < nz; l++) {
+          const m = box(sx * 0.95, sy * 0.95, sz * 0.95, cols[k++ % cols.length]);
+          m.position.set(x0 + (i + 0.5) * sx, (j + 0.5) * sy, z0 + (l + 0.5) * sz);
+          const v = new THREE.Vector3((Math.random() - 0.5) * 3, Math.random() * 2 - j * 0.3, (Math.random() - 0.5) * 3);
+          const it = this.add(m, v, new THREE.Vector3(Math.random() * 3 - 1.5, Math.random() * 3 - 1.5, Math.random() * 3 - 1.5), 120);
+          it.radius = Math.min(sx, sy, sz) * 0.4;
+        }
+      }
+    }
+    for (let i = 0; i < 90; i++) {
+      particles.smoke(x0 + Math.random() * b.w, Math.random() * b.h * 0.6, z0 + Math.random() * b.depth);
+    }
   }
 
   add(mesh, vel, spin, life = 14) {
     this.scene.add(mesh);
-    this.items.push({ mesh, v: vel.clone(), w: spin.clone(), life, age: 0, rest: false, radius: 0.25 });
+    const it = { mesh, v: vel.clone(), w: spin.clone(), life, age: 0, rest: false, radius: 0.08 };
+    this.items.push(it);
     while (this.items.length > MAX_DEBRIS) this.remove(0);
+    return it;
   }
 
   remove(i) {
@@ -62,7 +98,7 @@ export class Debris {
   // Cars plough through debris lying on the ground.
   kick(cars) {
     for (const it of this.items) {
-      if (it.mesh.position.y > 1.2) continue;
+      if (it.mesh.position.y > 1.2 + it.radius) continue;
       for (const c of cars) {
         const b = c.body;
         const dx = it.mesh.position.x - b.x, dz = it.mesh.position.z - b.z;
@@ -81,6 +117,17 @@ export class Debris {
   }
 
   update(dt) {
+    for (let i = this.toppling.length - 1; i >= 0; i--) {
+      const t = this.toppling[i];
+      t.w += (6 * Math.sin(t.angle) + 1.5) * dt; // falls faster as it tips
+      t.angle += t.w * dt;
+      if (t.angle >= Math.PI / 2 - 0.05) {
+        t.angle = Math.PI / 2 - 0.05;
+        t.w = -t.w * 0.25; // little bounce
+        if (++t.bounces > 2 || Math.abs(t.w) < 0.3) this.toppling.splice(i, 1);
+      }
+      t.obj.quaternion.setFromAxisAngle(t.axis, t.angle).multiply(t.q0);
+    }
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       it.age += dt;
@@ -94,7 +141,7 @@ export class Debris {
       it.v.y += GRAVITY * dt;
       m.position.addScaledVector(it.v, dt);
       m.rotation.x += it.w.x * dt; m.rotation.y += it.w.y * dt; m.rotation.z += it.w.z * dt;
-      const g = groundAt(m.position.x, m.position.z) + 0.08;
+      const g = groundAt(m.position.x, m.position.z) + it.radius;
       if (m.position.y < g) {
         m.position.y = g;
         if (Math.abs(it.v.y) < 1.2 && Math.hypot(it.v.x, it.v.z) < 0.6) {
@@ -108,7 +155,7 @@ export class Debris {
     }
   }
 
-  clear() { while (this.items.length) this.remove(0); }
+  clear() { while (this.items.length) this.remove(0); this.toppling = []; }
 }
 
 // Square pixel particles (smoke, sparks, water, coins, confetti).

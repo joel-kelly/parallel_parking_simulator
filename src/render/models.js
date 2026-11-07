@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CURB, SIDEWALK, SIDEWALK_H, LANE } from '../sim/level.js';
+import { CURB, SIDEWALK, SIDEWALK_H, LANE, BUILDING_DEPTH } from '../sim/level.js';
 
 // The classic 16-colour EGA palette, for that early-90s shareware feel.
 export const EGA = {
@@ -321,31 +321,21 @@ export function buildStreet(level) {
     }
   }
 
-  // buildings
+  // buildings (each its own group so it can be wrecked)
   const bz0 = CURB + SIDEWALK;
-  for (const b of level.buildings) {
-    const w = b.x1 - b.x0, cx = (b.x0 + b.x1) / 2, h = b.height, depth = 10;
-    const z = b.dir * (bz0 + depth / 2);
-    g.add(box(w - 0.1, h, depth, b.color, cx, h / 2, z));
-    g.add(box(w + 0.1, 0.4, depth + 0.4, EGA.white, cx, h + 0.2, z)); // cornice
-    const face = b.dir * bz0 - b.dir * 0.02;
-    // windows
-    for (let fy = 3.5; fy < h - 1; fy += 2.5) {
-      for (let fx = b.x0 + 1.2; fx < b.x1 - 1; fx += 2) {
-        g.add(box(1.0, 1.3, 0.1, (Math.floor(fx + fy) % 3 === 0) ? EGA.yellow : EGA.blue, fx + 0.3, fy, face, { basic: true }));
-      }
-    }
-    // shopfront: door, big window, sign, awning
-    g.add(box(1.2, 2.2, 0.12, EGA.black, b.x0 + 1.5, 1.1, face));
-    g.add(box(w - 4, 1.6, 0.12, EGA.lcyan, cx + 1, 1.4, face, { basic: true }));
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 8), 1.1),
-      new THREE.MeshBasicMaterial({ map: textTexture(b.name) }));
-    sign.position.set(cx, 2.85, face - b.dir * 0.05);
-    sign.rotation.y = b.dir > 0 ? Math.PI : 0;
-    g.add(sign);
-    const aw = box(w - 0.6, 0.15, 1.4, [EGA.lred, EGA.lmagenta, EGA.lgreen, EGA.lblue][Math.abs(Math.floor(b.x0)) % 4], cx, 2.25, face - b.dir * 0.7);
-    aw.rotation.x = b.dir * 0.25;
-    g.add(aw);
+  const buildings = level.buildings.map((b) => {
+    const v = buildBuilding(b);
+    g.add(v.group);
+    return v;
+  });
+  // the lots behind the buildings (only visible once a building is gone) and their back walls
+  const span = level.xMax - level.xMin + 60;
+  for (const dir of [1, -1]) {
+    const lot = box(span, SIDEWALK_H, BUILDING_DEPTH, EGA.dgray, mid, SIDEWALK_H / 2 - 0.01, dir * (bz0 + BUILDING_DEPTH / 2));
+    lot.castShadow = false;
+    g.add(lot);
+    g.add(box(span, 2.4, 1.0, EGA.red, mid, 1.2, dir * (bz0 + BUILDING_DEPTH + 0.5)));
+    g.add(box(span, 0.25, 1.1, EGA.lgray, mid, 2.5, dir * (bz0 + BUILDING_DEPTH + 0.5)));
   }
 
   // road closed barricades
@@ -364,7 +354,52 @@ export function buildStreet(level) {
   const ground = box(600, 0.1, 600, EGA.green, mid, -0.2, 0);
   ground.castShadow = false;
   g.add(ground);
-  return g;
+  return { group: g, buildings };
+}
+
+/**
+ * One building: `block` is the main body, `facade` holds the shopfront bits
+ * that fly off on the first big hit, `extras` are windows/cornice that go
+ * when it collapses.
+ */
+export function buildBuilding(b) {
+  const group = new THREE.Group();
+  const facade = new THREE.Group();
+  const extras = new THREE.Group();
+  group.add(facade, extras);
+  const bz0 = CURB + SIDEWALK;
+  const w = b.x1 - b.x0, cx = (b.x0 + b.x1) / 2, h = b.height, depth = BUILDING_DEPTH;
+  const z = b.dir * (bz0 + depth / 2);
+  const block = box(w - 0.1, h, depth, b.color, cx, h / 2, z);
+  group.add(block);
+  extras.add(box(w + 0.1, 0.4, depth + 0.4, EGA.white, cx, h + 0.2, z)); // cornice
+  const face = b.dir * bz0 - b.dir * 0.02;
+  for (let fy = 3.5; fy < h - 1; fy += 2.5) {
+    for (let fx = b.x0 + 1.2; fx < b.x1 - 1; fx += 2) {
+      extras.add(box(1.0, 1.3, 0.1, (Math.floor(fx + fy) % 3 === 0) ? EGA.yellow : EGA.blue, fx + 0.3, fy, face, { basic: true }));
+    }
+  }
+  // shopfront: door, big window (in panes, so it shatters nicely), sign, awning
+  facade.add(box(1.2, 2.2, 0.12, EGA.black, b.x0 + 1.5, 1.1, face));
+  const winW = w - 4, panes = Math.max(2, Math.round(winW / 1.2));
+  for (let i = 0; i < panes; i++) {
+    for (let j = 0; j < 2; j++) {
+      facade.add(box(winW / panes - 0.04, 0.78, 0.12, EGA.lcyan, cx + 1 - winW / 2 + (i + 0.5) * winW / panes, 1.0 + j * 0.8, face, { basic: true }));
+    }
+  }
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 8), 1.1),
+    new THREE.MeshBasicMaterial({ map: textTexture(b.name), side: THREE.DoubleSide }));
+  sign.position.set(cx, 2.85, face - b.dir * 0.05);
+  sign.rotation.y = b.dir > 0 ? Math.PI : 0;
+  facade.add(sign);
+  const aw = box(w - 0.6, 0.15, 1.4, [EGA.lred, EGA.lmagenta, EGA.lgreen, EGA.lblue][Math.abs(Math.floor(b.x0)) % 4], cx, 2.25, face - b.dir * 0.7);
+  aw.rotation.x = b.dir * 0.25;
+  facade.add(aw);
+  // a dark, smashed-in hole that appears behind the shopfront once it's gone
+  const hole = box(w - 2.5, 2.3, 0.1, EGA.black, cx + 0.3, 1.25, face + b.dir * 0.03, { basic: true });
+  hole.visible = false;
+  group.add(hole);
+  return { group, block, facade, extras, hole, info: b, w, h, depth, cx, z };
 }
 
 export function buildSpotMarker(spot, color = EGA.yellow) {

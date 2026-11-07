@@ -1,6 +1,6 @@
 import { makeBody, collideOBB, closingSpeed, resolve, integrate } from './physics.js';
 import { driveCar, centreAhead } from './vehicles.js';
-import { PROPS, CURB } from './level.js';
+import { PROPS, CURB, BUILDING_FACADE_HIT, BUILDING_COLLAPSE } from './level.js';
 import { AIDriver } from './ai.js';
 import { evaluatePark } from './spot.js';
 
@@ -66,6 +66,9 @@ export class World {
     }
 
     this.statics = [...this.walls];
+    this.buildings = level.buildings.map((info, i) => ({
+      info, damage: 0, facade: false, collapsed: false, body: this.walls.find((w) => w.building === i),
+    }));
     this.dynamics = [...this.cars.map((c) => c.body), ...this.parked.map((p) => p.body)];
     this.bodyOwner = new Map();
     for (const c of this.cars) this.bodyOwner.set(c.body, { car: c });
@@ -181,11 +184,32 @@ export class World {
         }
       }
     }
-    if (b.kind === 'building' && impact > 3) {
-      this.destruction += Math.round(impact * 200);
+    if (b.kind === 'building' && impact > BUILDING_FACADE_HIT) this.hitBuilding(this.buildings[b.building], a, impact, c);
+    if (b.kind === 'barricade' && impact > 2) this.emit({ type: 'smash', x: c.px, z: c.pz, impact, nx: c.nx, nz: c.nz });
+  }
+
+  hitBuilding(bd, by, impact, c) {
+    if (bd.collapsed) return;
+    // Heavier vehicles do more damage.
+    bd.damage += impact * impact * by.mass / 1200;
+    this.destruction += Math.round(impact * 200);
+    const owner = this.bodyOwner.get(by);
+    const car = owner && owner.car;
+    if (!bd.facade) {
+      bd.facade = true;
+      this.destruction += 3000;
+      this.emit({ type: 'facade', building: bd, x: c.px, z: c.pz, impact, nx: c.nx, nz: c.nz, by: car });
+    } else {
       this.emit({ type: 'smash', x: c.px, z: c.pz, impact, nx: c.nx, nz: c.nz });
     }
-    if (b.kind === 'barricade' && impact > 2) this.emit({ type: 'smash', x: c.px, z: c.pz, impact, nx: c.nx, nz: c.nz });
+    if (bd.damage >= BUILDING_COLLAPSE) {
+      bd.collapsed = true;
+      const w = bd.info.x1 - bd.info.x0;
+      const value = 20000 + Math.round(w * bd.info.height * 150);
+      this.destruction += value;
+      this.statics = this.statics.filter((s) => s !== bd.body);
+      this.emit({ type: 'collapse', building: bd, value, by: car });
+    }
   }
 
   updateCar(car, dt) {

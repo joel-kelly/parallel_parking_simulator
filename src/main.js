@@ -295,7 +295,7 @@ function startGame(mode) {
   if (mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.start)}`, 5);
   if (mode === 'race') say(`<b>${opts.aiProfile.name}:</b> "${opts.aiProfile.taunt}"`, 4);
   if (tutorial) say('<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.', 4);
-  if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Press ENTER to file your insurance claim.', 5);
+  if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Trees. Shops. Whole buildings (keep ramming). Press ENTER to file your insurance claim.', 6);
 }
 
 function updateHUD() {
@@ -357,7 +357,8 @@ function handleEvents(events) {
       if (e.prop.type === 'meter') audio.coin();
       if (game.mode === 'test' && e.by && e.by.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.prop)}`);
     } else if (e.type === 'wreck') audio.boom();
-    else if (e.type === 'smash') audio.smash();
+    else if (e.type === 'smash' || e.type === 'facade') audio.smash();
+    else if (e.type === 'collapse') { audio.boom(); audio.smash(); }
     else if (e.type === 'curb' && e.car.isPlayer) {
       audio.curb();
       if (game.mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.curb)}`);

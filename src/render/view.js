@@ -62,7 +62,9 @@ export class View {
     scene.add(sun, sun.target);
     this.sun = sun;
 
-    scene.add(buildStreet(world.level));
+    const street = buildStreet(world.level);
+    scene.add(street.group);
+    this.buildingViews = street.buildings;
     addClouds(scene, world.level);
 
     this.carViews = world.cars.map((c) => {
@@ -131,8 +133,14 @@ export class View {
       const v = this.propByBody.get(e.prop);
       if (!v) return;
       const base = new THREE.Vector3(e.vx, 0, e.vz);
-      this.debris.explode(v.group, base, 1 + Math.min(2, e.impact / 6));
-      this.scene.remove(v.group);
+      if (e.prop.def.topple) {
+        // trees and lamp posts tip over in the direction you hit them
+        this.debris.topple(v.group, e.vx, e.vz, Math.hypot(e.vx, e.vz));
+        if (e.prop.type === 'tree') this.debris.burst(e.x, 3, e.z, [EGA.green, EGA.lgreen], 10, 4);
+      } else {
+        this.debris.explode(v.group, base, 1 + Math.min(2, e.impact / 6));
+        this.scene.remove(v.group);
+      }
       P.sparks(e.x, 0.6, e.z, 8, 3);
       const name = e.prop.def.name;
       if (e.prop.type === 'hydrant') this.geysers.push({ x: e.prop.body.x, z: e.prop.body.z, t: 25 });
@@ -165,6 +173,22 @@ export class View {
       this.popups.add('KABOOM! +$5000', e.x, 2.5, e.z, '#ff5555', 1.6);
       this.flash = 0.6;
       this.shake = 1.0;
+    } else if (e.type === 'facade') {
+      const v = this.buildingViews[this.world.buildings.indexOf(e.building)];
+      const out = new THREE.Vector3(-e.nx, 0, -e.nz).multiplyScalar(3 + e.impact * 0.5);
+      this.debris.explode(v.facade, out, 1 + Math.min(1.5, e.impact / 8));
+      v.hole.visible = true;
+      this.debris.burst(e.x, 1.2, e.z, [EGA.lcyan, EGA.white], 24, 4 + e.impact * 0.5, new THREE.Vector3(-e.nx, 0.3, -e.nz));
+      this.popups.add(`${v.info.name}: CLOSED! +$3000`, e.x, 3, e.z, '#55ffff', 1.4);
+      this.shake = Math.max(this.shake, 0.6);
+    } else if (e.type === 'collapse') {
+      const v = this.buildingViews[this.world.buildings.indexOf(e.building)];
+      this.debris.explode(v.extras, new THREE.Vector3(0, 0, -v.info.dir * 4), 1.2);
+      this.scene.remove(v.group);
+      this.debris.collapse(v, v.info.color, this.particles);
+      this.popups.add(`DEMOLISHED! +$${e.value.toLocaleString()}`, v.cx, v.h * 0.6, v.z - v.info.dir * 5, '#ff55ff', 2.2);
+      this.flash = 0.4;
+      this.shake = 1.4;
     } else if (e.type === 'smash') {
       const dir = new THREE.Vector3(-e.nx, 0.2, -e.nz);
       this.debris.burst(e.x, 0.8, e.z, [EGA.lcyan, EGA.white, EGA.brown], Math.round(6 + e.impact * 2), 3 + e.impact * 0.6, dir);

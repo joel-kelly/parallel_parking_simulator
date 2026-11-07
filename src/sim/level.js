@@ -5,6 +5,10 @@ export const SIDEWALK = 4.0;      // sidewalk depth
 export const SIDEWALK_H = 0.18;   // curb height
 export const LANE = 2.1;          // |z| of each travel lane centre
 export const PARK_GAP = 0.3;      // how far parked cars sit off the curb
+export const BUILDING_DEPTH = 10;
+// Building damage: first hard hit smashes the shopfront, enough damage collapses it.
+export const BUILDING_FACADE_HIT = 3;
+export const BUILDING_COLLAPSE = 220;
 
 // Extra space in the target spot beyond the player's own length.
 export const DIFFICULTIES = [
@@ -19,10 +23,10 @@ export const PROPS = {
   hydrant: { hl: 0.22, hw: 0.22, breakSpeed: 2.2, value: 800, name: 'FIRE HYDRANT' },
   mailbox: { hl: 0.3, hw: 0.28, breakSpeed: 1.8, value: 350, name: 'MAILBOX' },
   trash: { hl: 0.3, hw: 0.3, breakSpeed: 1.2, value: 150, name: 'TRASH CAN' },
-  lamp: { hl: 0.16, hw: 0.16, breakSpeed: 4.5, value: 1500, name: 'LAMP POST' },
+  lamp: { hl: 0.16, hw: 0.16, breakSpeed: 2.8, value: 1500, name: 'LAMP POST', topple: true },
   bench: { hl: 0.9, hw: 0.3, breakSpeed: 2.0, value: 400, name: 'BENCH' },
   newsbox: { hl: 0.25, hw: 0.25, breakSpeed: 1.2, value: 120, name: 'NEWSPAPER BOX' },
-  tree: { hl: 0.25, hw: 0.25, breakSpeed: 6.0, value: 2000, name: 'TREE (A WHOLE TREE)' },
+  tree: { hl: 0.25, hw: 0.25, breakSpeed: 3.0, value: 2000, name: 'TREE (A WHOLE TREE)', topple: true },
   cone: { hl: 0.2, hw: 0.2, breakSpeed: 0.2, value: 25, name: 'TRAFFIC CONE' },
   crate: { hl: 0.5, hw: 0.5, breakSpeed: 0.8, value: 60, name: 'CRATE' },
   sawhorse: { hl: 0.2, hw: 1.0, breakSpeed: 0.8, value: 100, name: 'BARRIER' },
@@ -209,12 +213,20 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     }
   }
   const bz0 = CURB + SIDEWALK;
+  // One collision box per building so each can be wrecked on its own.
+  level.buildings.forEach((b, i) => {
+    level.walls.push({
+      kind: 'building', building: i,
+      x: (b.x0 + b.x1) / 2, z: b.dir * (bz0 + BUILDING_DEPTH / 2), hl: (b.x1 - b.x0) / 2, hw: BUILDING_DEPTH / 2, a: 0,
+    });
+  });
+  // Back walls behind the lots, for when a building is no longer there.
   for (const dir of [1, -1]) {
-    level.walls.push({ kind: 'building', x: (xMin + xMax) / 2, z: dir * (bz0 + 5), hl: (xMax - xMin) / 2 + 20, hw: 5, a: 0 });
+    level.walls.push({ kind: 'backwall', x: (xMin + xMax) / 2, z: dir * (bz0 + BUILDING_DEPTH + 0.5), hl: (xMax - xMin) / 2 + 30, hw: 0.5, a: 0 });
   }
-  // Road closed barricades at each end
+  // Road closed barricades at each end (reaching back through the lots too)
   for (const end of [xMin, xMax]) {
-    level.walls.push({ kind: 'barricade', x: end, z: 0, hl: 0.6, hw: bz0 + 1, a: 0 });
+    level.walls.push({ kind: 'barricade', x: end, z: 0, hl: 0.6, hw: bz0 + BUILDING_DEPTH + 1, a: 0 });
   }
   return level;
 }

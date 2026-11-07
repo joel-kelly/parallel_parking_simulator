@@ -51,7 +51,9 @@ No gear shifting: stop, keep holding S, and the car goes into reverse.
 - **Race the AI**: you and an AI each have a spot on opposite sides of the street.
   First one parked wins. The AI gets better (and ruder) with difficulty.
 - **Wreck-reation**: everything breaks. Hydrants geyser, parking meters spill
-  coins, parked cars eventually explode. Press Enter to file the insurance claim.
+  coins, trees and lamp posts topple, parked cars eventually explode. Ram a shop
+  to smash its front; keep ramming and the whole building collapses into rubble
+  you can drive through. Press Enter to file the insurance claim.
 
 **Difficulty** sets how much spare room the spot has beyond your car's length:
 Easy +3.0m, Normal +2.0m, Hard +1.45m, Insane +1.15m. Hard and Insane need
