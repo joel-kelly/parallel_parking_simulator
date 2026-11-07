@@ -5,6 +5,8 @@
 A cheeky 3D parallel parking game for the browser, rendered in chunky pixels
 with an EGA-era shareware look.
 
+**Play it:** https://joel-kelly.github.io/parallel_parking_simulator/
+
 ## Run it
 
 ```bash
@@ -14,6 +16,10 @@ npm run dev
 
 Then open the URL Vite prints (usually http://localhost:5173).
 `npm run build` makes a static build in `dist/` that works from any folder.
+
+Pushes deploy automatically to GitHub Pages via `.github/workflows/deploy.yml`
+(it runs the tests first). Pages must use **GitHub Actions** as its source:
+Settings → Pages → Build and deployment → Source.
 
 ## Controls
 
@@ -34,6 +40,10 @@ Then open the URL Vite prints (usually http://localhost:5173).
 No gear shifting: stop, keep holding S, and the car goes into reverse.
 
 ## Modes
+
+- **Tutorial**: a one-minute guided intro to the controls, ending with your first
+  park. It runs automatically the first time you start any mode (Enter skips it)
+  and can be replayed from the menu.
 
 - **Driving Test**: park between two cars and get graded (S to F) on moves vs. par,
   dings, distance from the curb, angle, centering, time and vandalism.

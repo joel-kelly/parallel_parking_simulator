@@ -6,6 +6,7 @@ import { buildLevel, DIFFICULTIES } from './sim/level.js';
 import { VEHICLES, vehicleById } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
+import { Tutorial } from './tutorial.js';
 
 const $ = (id) => document.getElementById(id);
 const screen = $('screen');
@@ -60,6 +61,7 @@ const MODES = [
   { id: 'test', name: 'DRIVING TEST', desc: 'Park between two cars. Get graded by a deeply judgemental instructor.' },
   { id: 'race', name: 'RACE THE AI', desc: 'First one parked wins. Ramming is frowned upon. Not banned. Frowned upon.' },
   { id: 'wreck', name: 'WRECK-REATION', desc: 'No rules. Smash the town. Then file an insurance claim.' },
+  { id: 'tutorial', name: 'TUTORIAL', desc: 'Learn the controls in about a minute.' },
   { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides.' },
   { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, and a short lecture.' },
 ];
@@ -89,6 +91,7 @@ function diffObj() { return DIFFICULTIES.find((d) => d.id === save.difficulty) |
 
 function renderMenu() {
   game.state = 'menu';
+  game.pendingMode = null;
   hud.classList.add('hidden');
   const v = vehicleById(save.vehicle);
   const d = diffObj();
@@ -96,6 +99,7 @@ function renderMenu() {
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
       <div class="tagline">EPISODE ONE: CURB YOUR ENTHUSIASM</div>
+      ${save.tutorialSeen ? '' : '<div class="tagline" style="color:var(--lgreen);margin-top:-12px">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MODES.map((m, i) => `<li data-i="${i}" class="${i === game.menuSel ? 'sel' : ''}">${m.name}<span class="desc">${m.desc}</span></li>`).join('')}
       </ul>
@@ -202,11 +206,21 @@ function renderHowTo() {
 
 // ---------------- gameplay ----------------
 function startGame(mode) {
+  // First time playing anything: run the tutorial first, then carry on.
+  if (mode !== 'tutorial' && !save.tutorialSeen) {
+    game.pendingMode = mode;
+    mode = 'tutorial';
+  }
+  if (mode === 'tutorial') {
+    save.tutorialSeen = true;
+    writeSave(save);
+  }
   game.mode = mode;
+  const tutorial = mode === 'tutorial';
   const vehicle = vehicleById(save.vehicle);
-  const diff = diffObj();
-  const seed = Math.floor(Math.random() * 1e9);
-  const level = buildLevel({ mode, difficulty: diff.id, vehicle, seed });
+  const diff = tutorial ? DIFFICULTIES[0] : diffObj();
+  const seed = tutorial ? 11 : Math.floor(Math.random() * 1e9);
+  const level = buildLevel({ mode: tutorial ? 'test' : mode, difficulty: diff.id, vehicle, seed });
   const opts = {};
   if (mode === 'race') {
     opts.aiSpec = vehicle;
@@ -219,6 +233,8 @@ function startGame(mode) {
   game.saidReverse = false;
   game.result = null;
   game.autopilot = null;
+  game.tutorial = tutorial ? new Tutorial($('tutor')) : null;
+  $('tutor').classList.toggle('hidden', !tutorial);
   if (world.playerSpot) {
     const plan = planPark(world, world.playerSpot, vehicle);
     game.par = plan ? plan.moves : 6;
@@ -226,12 +242,14 @@ function startGame(mode) {
   view.load(world);
   hideScreen();
   hud.classList.remove('hidden');
+  hud.classList.toggle('tutorial', tutorial);
   $('bubble').classList.add('hidden');
   game.state = 'countdown';
   game.countdown = mode === 'race' ? 3.99 : 1.2;
   game.lastCount = 99;
   if (mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.start)}`, 5);
   if (mode === 'race') say(`<b>${opts.aiProfile.name}:</b> "${opts.aiProfile.taunt}"`, 4);
+  if (tutorial) say('<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.', 4);
   if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Press ENTER to file your insurance claim.', 5);
 }
 
@@ -241,7 +259,11 @@ function updateHUD() {
   const t = game.playTime.toFixed(1);
   const mode = MODES.find((m) => m.id === game.mode).name;
   let tl = `<div class="k">${mode}</div>`;
-  if (game.mode === 'wreck') {
+  if (game.mode === 'tutorial') {
+    const tu = game.tutorial;
+    tl += `<div>STEP <span class="v">${Math.min(tu.step + 1, tu.total)}/${tu.total}</span></div>`;
+    tl += `<div>DINGS <span class="${p.dings ? 'bad' : 'v'}">${p.dings}</span></div>`;
+  } else if (game.mode === 'wreck') {
     tl += `<div>DAMAGE <span class="bad">$${w.destruction.toLocaleString()}</span></div>`;
     tl += `<div>THINGS BROKEN <span class="v">${p.propsBroken}</span></div>`;
     tl += `<div>CARS WRECKED <span class="v">${w.parked.filter((c) => c.wrecked).length}</span></div>`;
@@ -252,7 +274,7 @@ function updateHUD() {
   }
   $('hud-tl').innerHTML = tl;
 
-  let tr = `<div>${diffObj().name}</div><div>PTS <span class="k">${save.points}</span></div>`;
+  let tr = `<div>${game.mode === 'tutorial' ? 'PRACTICE' : diffObj().name}</div><div>PTS <span class="k">${save.points}</span></div>`;
   if (game.mode === 'race' && w.ai) {
     const a = w.ai.car;
     const status = a.parked ? '<span class="bad">PARKED!</span>' : w.ai.driver.gaveUp ? '<span class="good">GAVE UP</span>' : 'PARKING...';
@@ -376,6 +398,31 @@ function finishWreck() {
   }));
 }
 
+function finishTutorial(skipped) {
+  const next = game.pendingMode;
+  game.pendingMode = null;
+  $('tutor').classList.add('hidden');
+  if (skipped) {
+    if (next) startGame(next); else renderMenu();
+    return;
+  }
+  let msg = 'You are now a licensed driver. Sort of. Legally? Unclear.';
+  if (!save.tutorialDone && !game.autopilot) {
+    save.tutorialDone = true;
+    awardPoints(50);
+    writeSave(save);
+    msg += ' Have 50 points.';
+  }
+  $('hud-center').innerHTML = `LICENSED!<div class="sub">${next ? 'NOW FOR THE REAL THING...' : 'BACK TO THE MENU...'}</div>`;
+  say(`<b>INSTRUCTOR:</b> ${msg}`, 4);
+  audio.jingle(true);
+  endWith(() => {
+    $('hud-center').innerHTML = '';
+    if (next) startGame(next); else renderMenu();
+  });
+  game.endT = 3.5;
+}
+
 function awardPoints(n) {
   const before = save.points;
   save.points += n;
@@ -452,10 +499,12 @@ function handleKeys() {
     case 'play':
       if (hit('Escape')) { renderPause(); break; }
       if (hit('KeyR')) { startGame(game.mode); break; }
-      if (hit('KeyC')) view.cycleCamera();
+      if (hit('KeyC')) { view.cycleCamera(); if (game.tutorial) game.tutorial.camPresses++; }
+      if (hit('Space') && game.tutorial) game.tutorial.handbrake = true;
+      if (game.mode === 'tutorial' && hit('Enter')) { finishTutorial(true); break; }
       if (hit('KeyH')) audio.horn(game.world.player.spec.style);
       if (game.state === 'play' && game.mode === 'wreck' && hit('Enter')) finishWreck();
-      if (game.state === 'play' && game.mode === 'test' && hit('KeyI') && !game.autopilot) {
+      if (game.state === 'play' && (game.mode === 'test' || game.mode === 'tutorial') && hit('KeyI') && !game.autopilot) {
         const w = game.world;
         game.autopilot = new AIDriver(w, w.player, w.playerSpot, AI_PROFILES.normal);
         say('<b>INSTRUCTOR:</b> Oh, for heaven\'s sake. Move over. Watch and learn.', 5);
@@ -506,6 +555,10 @@ function frame(now) {
     w.step(dt, input);
     game.playTime += game.state === 'play' ? dt : 0;
     handleEvents(w.drainEvents());
+    if (game.state === 'play' && game.tutorial) {
+      if (game.tutorial.update(dt, input, w)) audio.select();
+      if (game.tutorial.finished) finishTutorial(false);
+    }
     if (game.state === 'play' && game.mode === 'race' && w.ai.driver.gaveUp && !w.ai.car.parked) finishRace(true, true);
 
     // instructor nags
@@ -514,19 +567,14 @@ function frame(now) {
       if (game.idleT > 12) { say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.slow)}`); game.idleT = 0; }
       if (!game.saidReverse && w.player.gear === 'R' && w.player.speed < -0.5) { game.saidReverse = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.reverse)}`, 2); }
     }
-
-    audio.engine(w.player.speed, input.throttle, true);
     audio.reverseBeep(dt, w.player.gear === 'R' && w.player.speed < -0.2);
     view.update(dt);
     updateHUD();
     if (game.state === 'ending') {
       game.endT -= dt;
-      if (game.endT <= 0) { audio.engine(0, 0, false); game.endFn(); }
+      if (game.endT <= 0) game.endFn();
     }
-  } else if (game.state === 'paused') {
-    audio.engine(0, 0, false);
-  } else {
-    audio.engine(0, 0, false);
+  } else if (game.state !== 'paused') {
     view.renderIdle(dt);
   }
   requestAnimationFrame(frame);

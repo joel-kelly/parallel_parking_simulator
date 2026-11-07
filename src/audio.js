@@ -16,16 +16,6 @@ export class Audio {
     this.master.gain.value = this.muted ? 0 : 0.5;
     this.master.connect(this.ctx.destination);
 
-    // engine: two detuned oscillators through a lowpass
-    this.engGain = this.ctx.createGain();
-    this.engGain.gain.value = 0;
-    const lp = this.ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 600;
-    this.osc1 = this.ctx.createOscillator(); this.osc1.type = 'sawtooth';
-    this.osc2 = this.ctx.createOscillator(); this.osc2.type = 'square';
-    this.osc1.connect(lp); this.osc2.connect(lp); lp.connect(this.engGain); this.engGain.connect(this.master);
-    this.osc1.start(); this.osc2.start();
-
     const len = this.ctx.sampleRate;
     this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -35,15 +25,6 @@ export class Audio {
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 0.5;
-  }
-
-  engine(speed, throttle, running) {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    const f = 38 + Math.abs(speed) * 7 + Math.abs(throttle) * 14;
-    this.osc1.frequency.setTargetAtTime(f, t, 0.05);
-    this.osc2.frequency.setTargetAtTime(f * 1.51, t, 0.05);
-    this.engGain.gain.setTargetAtTime(running ? 0.05 + Math.abs(throttle) * 0.05 : 0, t, 0.1);
   }
 
   // Reverse beeper while backing up. Cheeky but accurate.

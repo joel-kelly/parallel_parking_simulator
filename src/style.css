@@ -68,6 +68,25 @@ html, body {
 }
 #bubble b { color: var(--blue); }
 
+#tutor {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 360px)); min-width: 280px;
+  background: var(--blue); border: 4px solid var(--yellow);
+  box-shadow: inset -4px -4px 0 var(--dgray), 4px 4px 0 var(--black);
+  padding: 12px 16px; text-align: center; font-size: 12px; line-height: 2;
+}
+#tutor small { display: block; font-size: 8px; color: var(--lgray); line-height: 1.9; margin-top: 4px; }
+.tut-step { font-size: 9px; color: var(--lcyan); margin-bottom: 4px; }
+.tut-skip { font-size: 8px; color: var(--lgray); margin-top: 8px; }
+.tut-nice { font-size: 22px; color: var(--lgreen); text-shadow: 3px 3px 0 var(--black); padding: 10px 0; }
+.key {
+  display: inline-block; min-width: 26px; padding: 3px 6px; margin: 0 2px;
+  background: var(--black); color: var(--yellow);
+  border: 2px solid var(--white); box-shadow: 2px 2px 0 var(--dgray);
+  font-size: 10px; line-height: 1.4; vertical-align: middle;
+}
+#hud.tutorial #bubble { top: 170px; }
+
 #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
 .popup {
   position: absolute; left: 0; top: 0; white-space: nowrap;
@@ -101,11 +120,11 @@ html, body {
   letter-spacing: 2px;
 }
 .logo .l2 { color: var(--lcyan); text-shadow: 4px 4px 0 var(--blue), 8px 8px 0 var(--black); }
-.tagline { text-align: center; font-size: 11px; color: var(--lmagenta); margin: 14px 0 24px; text-shadow: 2px 2px 0 var(--black); }
+.tagline { text-align: center; font-size: 11px; color: var(--lmagenta); margin: 12px 0 18px; text-shadow: 2px 2px 0 var(--black); }
 
 .menu { list-style: none; padding: 0; margin: 0 auto; max-width: 460px; }
 .menu li {
-  padding: 10px 14px 10px 44px; font-size: 14px; cursor: pointer; position: relative; color: var(--white);
+  padding: 7px 14px 7px 44px; font-size: 14px; cursor: pointer; position: relative; color: var(--white);
 }
 .menu li .desc { display: block; font-size: 8px; color: var(--lgray); margin-top: 6px; line-height: 1.6; }
 .menu li.sel { color: var(--yellow); background: var(--black); }
