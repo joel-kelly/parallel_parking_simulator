@@ -12,14 +12,16 @@ const DEFAULTS = {
   wins: 0,
   ega: true,
   muted: false,
+  paint: {},         // vehicle id -> { color, accent }
+  tutorialSeen: false,
 };
 
 export function loadSave() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) return { ...DEFAULTS, paint: {}, best: {}, ...JSON.parse(raw) };
   } catch (e) { /* ignore */ }
-  return { ...DEFAULTS, unlocked: [...DEFAULTS.unlocked], best: {} };
+  return { ...DEFAULTS, unlocked: [...DEFAULTS.unlocked], best: {}, paint: {} };
 }
 
 export function writeSave(save) {

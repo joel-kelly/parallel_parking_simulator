@@ -171,6 +171,21 @@ h2 { font-size: 18px; color: var(--yellow); text-shadow: 3px 3px 0 var(--black);
 .howto .k { display: inline-block; min-width: 130px; }
 
 /* Short laptop screens: tighten everything so menus fit without scrolling. */
+/* Garage + paint shop sit on the left so the turntable car shows on the right. */
+@media (min-width: 900px) {
+  .window.side { max-width: 560px; margin-right: auto; margin-left: 3vw; }
+  .window.side .garage { grid-template-columns: 1fr 1fr; }
+}
+.paint-btn { margin-top: 4px; color: var(--lcyan); font-size: 9px; }
+.paint-btn:hover { color: var(--yellow); }
+.paint-row { margin: 14px 0 0; padding: 10px; border: 3px solid transparent; }
+.paint-row.active { border-color: var(--yellow); background: var(--black); }
+.paint-label { font-size: 11px; margin-bottom: 10px; }
+.paint-name { color: var(--yellow); }
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.sw { aspect-ratio: 1; border: 3px solid var(--dgray); cursor: pointer; }
+.sw.sel { border-color: var(--yellow); box-shadow: 0 0 0 2px var(--black), 0 0 0 4px var(--white); }
+
 @media (max-height: 760px) {
   .window { padding: 18px 24px; }
   .logo { font-size: clamp(18px, min(4.6vw, 5.2vh), 40px); }

@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { RetroPass } from './post.js';
 import { buildCar, buildProp, buildStreet, buildSpotMarker, EGA, box, mat } from './models.js';
 import { Debris, Particles, Popups } from './effects.js';
-import { CURB, SIDEWALK_H } from '../sim/level.js';
+import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
+
+const BUILDING_FACE = CURB + SIDEWALK;
 import { centreAhead } from '../sim/vehicles.js';
 
 const PIXEL_HEIGHT = 300; // vertical resolution of the chunky render
@@ -78,7 +80,8 @@ export class View {
     if (world.ai) {
       // tint the AI car so you can tell it apart
       const v = this.carViews[1];
-      const tint = mat(EGA.lmagenta);
+      // tint the AI a colour the player isn't wearing
+      const tint = mat(world.player.spec.color === EGA.lmagenta ? EGA.lcyan : EGA.lmagenta);
       v.body.traverse((o) => {
         if (o.isMesh && o.material.color && o.material.color.getHex() === world.ai.car.spec.color) o.material = tint;
       });
@@ -302,6 +305,7 @@ export class View {
     this.camPos.lerp(pos, k);
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);
+    if (this.camMode !== 2) this.avoidBuildings(this.camLook, this.camera.position);
     if (this.shake > 0) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
       this.camera.position.y += (Math.random() - 0.5) * this.shake;
@@ -309,6 +313,96 @@ export class View {
       this.shake = Math.max(0, this.shake - dt * 2);
     }
     this.camera.lookAt(this.camLook);
+  }
+
+  // If a standing building sits between the car and the camera, pull the
+  // camera in (and up) so it never ends up inside a wall.
+  avoidBuildings(look, cam) {
+    const steps = 16;
+    let hit = 1;
+    const p = new THREE.Vector3();
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      p.lerpVectors(look, cam, t);
+      if (this.insideBuilding(p.x, p.y, p.z)) { hit = (i - 1) / steps; break; }
+    }
+    if (hit < 1) {
+      const t = Math.max(0.2, hit - 0.05);
+      const raise = (1 - t) * 6;
+      cam.lerpVectors(look, cam, t);
+      cam.y += raise;
+    }
+  }
+
+  insideBuilding(x, y, z) {
+    const az = Math.abs(z), m = 0.4;
+    if (az < BUILDING_FACE - m || az > BUILDING_FACE + BUILDING_DEPTH + m) return false;
+    const dir = z > 0 ? 1 : -1;
+    for (const b of this.world.buildings) {
+      const i = b.info;
+      if (b.collapsed || i.dir !== dir) continue;
+      if (x >= i.x0 - m && x <= i.x1 + m && y < i.height + 0.8) return true;
+    }
+    return false;
+  }
+
+  // Garage / paint shop: the car on a turntable, drawn with the same retro look.
+  renderShowcase(dt, spec, color, accent, sideLayout) {
+    if (!this.show) {
+      const scene = new THREE.Scene();
+      scene.background = skyTexture();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.7));
+      const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+      sun.position.set(-8, 14, 10);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      scene.add(sun);
+      const floor = box(80, 0.1, 80, EGA.dgray, 0, -0.05, 0);
+      floor.castShadow = false;
+      scene.add(floor);
+      for (let i = -6; i <= 6; i++) { // floor tiles
+        const l1 = box(80, 0.02, 0.08, EGA.lgray, 0, 0.01, i * 4, { basic: true });
+        const l2 = box(0.08, 0.02, 80, EGA.lgray, i * 4, 0.01, 0, { basic: true });
+        l1.castShadow = l2.castShadow = false;
+        scene.add(l1, l2);
+      }
+      const table = new THREE.Group();
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.8, 0.25, 24), mat(EGA.yellow));
+      disc.position.y = 0.12;
+      disc.receiveShadow = true;
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(4.85, 4.95, 0.2, 24), mat(EGA.black));
+      ring.position.y = 0.1;
+      table.add(ring, disc);
+      scene.add(table);
+      this.show = { scene, table, cam: new THREE.PerspectiveCamera(38, 1, 0.3, 200), key: '', car: null, angle: 0.6 };
+    }
+    const S = this.show;
+    const key = `${spec.id}:${color}:${accent}`;
+    if (key !== S.key) {
+      if (S.car) S.table.remove(S.car);
+      const v = buildCar(spec, color, accent);
+      v.root.position.y = 0.25;
+      v.root.position.x = -(spec.length / 2 - spec.rearOverhang) + spec.wheelbase / 2; // centre on the table
+      S.car = new THREE.Group();
+      S.car.add(v.root);
+      S.table.add(S.car);
+      S.key = key;
+    }
+    S.angle += dt * 0.5;
+    S.table.rotation.y = S.angle;
+    const w = window.innerWidth, h = window.innerHeight;
+    const cam = S.cam;
+    cam.aspect = w / h;
+    const dist = 6 + spec.length * 1.15;
+    cam.position.set(dist * 0.8, 2.2 + spec.height * 0.6, dist * 0.6);
+    cam.lookAt(0, spec.height * 0.45, 0);
+    if (sideLayout) cam.setViewOffset(w, h, -w * 0.24, 0, w, h);
+    else cam.clearViewOffset();
+    cam.updateProjectionMatrix();
+    const u = this.post.material.uniforms;
+    u.ega.value = this.ega ? 1 : 0;
+    u.flash.value = 0;
+    this.post.render(S.scene, cam);
   }
 
   // Simple idle render used behind menus.

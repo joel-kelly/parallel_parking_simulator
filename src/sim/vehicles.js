@@ -9,7 +9,7 @@ export const VEHICLES = [
     wheelRadius: 0.32, color: 0xffff55, accent: 0xff55ff, style: 'hatch',
   },
   {
-    id: 'za', name: 'ZA WAGON', cost: 300,
+    id: 'za', name: 'ZA WAGON', cost: 0,
     blurb: 'Pizza delivery van. 30 minutes or your bumper is free.',
     length: 4.6, width: 1.9, height: 2.1, wheelbase: 2.9, rearOverhang: 0.8,
     maxSteer: 0.62, accel: 4.0, maxSpeed: 15, maxReverse: 4.5, mass: 1600,

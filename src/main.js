@@ -179,42 +179,62 @@ function pickDifficulty() {
 }
 
 let garageSel = 0;
+const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+const owns = (v) => v.cost === 0 || save.unlocked.includes(v.id);
+
+// A vehicle spec with the player's paint job applied.
+function paintedSpec(v) {
+  const p = save.paint[v.id] || {};
+  return { ...v, color: p.color ?? v.color, accent: p.accent ?? v.accent };
+}
+
 function renderGarage(msg = '') {
   game.state = 'garage';
   garageSel = Math.max(0, VEHICLES.findIndex((v) => v.id === save.vehicle));
   drawGarage(msg);
 }
 function drawGarage(msg = '') {
-  const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
   const scroll = screen.querySelector('.window')?.scrollTop || 0;
   showScreen(`
-    <div class="window" style="max-width:900px">
+    <div class="window side">
       <h2>THE GARAGE</h2>
-      <div class="row" style="max-width:none;margin:0 0 16px"><span>POINTS: <span class="k">${save.points}</span></span><span class="good">${msg}</span></div>
+      <div class="row" style="max-width:none;margin:0 0 12px"><span>POINTS: <span class="k">${save.points}</span></span><span class="good">${msg}</span></div>
       <div class="garage">
         ${VEHICLES.map((v, i) => {
-          const owned = save.unlocked.includes(v.id);
+          const owned = owns(v);
+          const ps = paintedSpec(v);
           const cls = ['car-card', i === garageSel ? 'sel' : '', owned ? '' : 'locked'].join(' ');
           const best = DIFFICULTIES.map((d) => save.best[`${v.id}:${d.id}`]).filter(Boolean);
+          let price;
+          if (save.vehicle === v.id) price = '<span class="good">&#9654; DRIVING</span>';
+          else if (owned) price = v.cost === 0 && !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
+          else price = save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`;
           return `<div class="${cls}" data-i="${i}">
-            <div class="name"><span class="swatch" style="background:${hex(v.color)}"></span>${v.name}</div>
+            <div class="name"><span class="swatch" style="background:${hex(ps.color)}"></span>${v.name}</div>
             <div class="blurb">${v.blurb}</div>
             <div>LENGTH ${v.length.toFixed(1)}M</div>
-            <div class="price">${owned ? (save.vehicle === v.id ? '<span class="good">&#9654; DRIVING</span>' : 'OWNED') : (save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`)}</div>
+            <div class="price">${price}</div>
+            ${owned ? '<div class="paint-btn" data-paint="1">&#9998; PAINT (C)</div>' : ''}
             ${best.length ? `<div style="font-size:8px;color:var(--lgray)">BEST ${Math.max(...best)}</div>` : ''}
           </div>`;
         }).join('')}
       </div>
-      <div class="hint">ARROWS TO BROWSE &bull; ENTER TO BUY / DRIVE &bull; ESC TO GO BACK</div>
+      <div class="hint">ARROWS BROWSE &bull; ENTER BUY / DRIVE &bull; C PAINT &bull; ESC BACK</div>
     </div>`);
   screen.querySelector('.window').scrollTop = scroll;
   screen.querySelectorAll('.car-card').forEach((el) => {
-    el.addEventListener('click', () => { garageSel = +el.dataset.i; garageAction(); });
+    el.addEventListener('mouseenter', () => { garageSel = +el.dataset.i; setSel('.car-card', garageSel); });
+    el.addEventListener('click', (e) => {
+      garageSel = +el.dataset.i;
+      if (e.target.closest('[data-paint]')) renderPaint(VEHICLES[garageSel]);
+      else garageAction();
+    });
   });
 }
 function garageAction() {
   const v = VEHICLES[garageSel];
-  if (save.unlocked.includes(v.id)) {
+  if (owns(v)) {
+    if (!save.unlocked.includes(v.id)) save.unlocked.push(v.id);
     save.vehicle = v.id; writeSave(save); audio.select(); drawGarage(`${v.name} SELECTED`);
   } else if (save.points >= v.cost) {
     save.points -= v.cost; save.unlocked.push(v.id); save.vehicle = v.id; writeSave(save);
@@ -222,6 +242,65 @@ function garageAction() {
   } else {
     audio.tone(110, 0.2, 'square', 0.1); drawGarage(`NEED ${v.cost - save.points} MORE POINTS`);
   }
+}
+
+// ---- paint shop ----
+const PALETTE = [
+  [0x000000, 'MIDNIGHT'], [0x0000aa, 'NAVY'], [0x00aa00, 'GREEN'], [0x00aaaa, 'TEAL'],
+  [0xaa0000, 'MAROON'], [0xaa00aa, 'PURPLE'], [0xaa5500, 'BROWN'], [0xaaaaaa, 'SILVER'],
+  [0x555555, 'GRAPHITE'], [0x5555ff, 'BLUE'], [0x55ff55, 'LIME'], [0x55ffff, 'AQUA'],
+  [0xff5555, 'SALMON'], [0xff55ff, 'HOT PINK'], [0xffff55, 'YELLOW'], [0xffffff, 'WHITE'],
+];
+const PAINT_QUIPS = [
+  'Fresh coat. Same driving.', 'Paint is free. Dignity costs extra.', 'Go faster stripes: scientifically unproven.',
+  'Hides dents. Mostly.', 'The parking meters will never recognise you.',
+];
+const paint = { veh: null, row: 0, idx: [0, 0], quip: '' };
+
+function renderPaint(v) {
+  if (!owns(v)) return;
+  game.state = 'paint';
+  paint.veh = v;
+  paint.row = 0;
+  const ps = paintedSpec(v);
+  paint.idx = [ps.color, ps.accent].map((c) => Math.max(0, PALETTE.findIndex(([x]) => x === c)));
+  paint.quip = PAINT_QUIPS[Math.floor(Math.random() * PAINT_QUIPS.length)];
+  audio.select();
+  const row = (r, label) => `
+    <div class="paint-row" data-row="${r}">
+      <div class="paint-label">${label} <span class="paint-name"></span></div>
+      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" style="background:${hex(c)}"></div>`).join('')}</div>
+    </div>`;
+  showScreen(`
+    <div class="window side" style="max-width:520px">
+      <h2>PAINT SHOP</h2>
+      <div class="tagline" style="margin-top:0">${v.name}</div>
+      ${row(0, 'BODY')}
+      ${row(1, 'STRIPE')}
+      <div class="quip" style="margin-top:16px">${paint.quip}</div>
+      <div class="hint">A/D PICK COLOUR &bull; W/S BODY OR STRIPE<br>R FACTORY PAINT &bull; ENTER / ESC DONE</div>
+    </div>`);
+  screen.querySelectorAll('.sw').forEach((el) => {
+    el.addEventListener('click', () => { paint.row = +el.dataset.row; paint.idx[paint.row] = +el.dataset.i; applyPaint(); });
+  });
+  drawPaint();
+}
+
+function applyPaint() {
+  const id = paint.veh.id;
+  save.paint[id] = { color: PALETTE[paint.idx[0]][0], accent: PALETTE[paint.idx[1]][0] };
+  writeSave(save);
+  audio.blip();
+  drawPaint();
+}
+
+function drawPaint() {
+  screen.querySelectorAll('.paint-row').forEach((rowEl) => {
+    const r = +rowEl.dataset.row;
+    rowEl.classList.toggle('active', r === paint.row);
+    rowEl.querySelector('.paint-name').textContent = PALETTE[paint.idx[r]][1];
+    rowEl.querySelectorAll('.sw').forEach((el, i) => el.classList.toggle('sel', i === paint.idx[r]));
+  });
 }
 
 function renderHowTo() {
@@ -262,13 +341,13 @@ function startGame(mode) {
   }
   game.mode = mode;
   const tutorial = mode === 'tutorial';
-  const vehicle = vehicleById(save.vehicle);
+  const vehicle = paintedSpec(vehicleById(save.vehicle));
   const diff = tutorial ? DIFFICULTIES[0] : diffObj();
   const seed = tutorial ? 11 : Math.floor(Math.random() * 1e9);
   const level = buildLevel({ mode: tutorial ? 'test' : mode, difficulty: diff.id, vehicle, seed });
   const opts = {};
   if (mode === 'race') {
-    opts.aiSpec = vehicle;
+    opts.aiSpec = vehicleById(save.vehicle);
     opts.aiProfile = AI_PROFILES[diff.id];
   }
   const world = new World(level, vehicle, opts);
@@ -539,7 +618,28 @@ function handleKeys() {
       if (hit('KeyS') || hit('ArrowDown')) { garageSel = Math.min(VEHICLES.length - 1, garageSel + cols); moved = true; }
       if (moved) { audio.blip(); setSel('.car-card', garageSel); }
       if (hit('Enter') || hit('Space')) garageAction();
+      if (hit('KeyC')) {
+        if (owns(VEHICLES[garageSel])) renderPaint(VEHICLES[garageSel]);
+        else { audio.tone(110, 0.2, 'square', 0.1); drawGarage('BUY IT BEFORE YOU PAINT IT'); }
+      }
       if (hit('Escape')) renderMenu();
+      break;
+    }
+    case 'paint': {
+      const n = PALETTE.length;
+      if (hit('KeyA') || hit('ArrowLeft')) { paint.idx[paint.row] = (paint.idx[paint.row] + n - 1) % n; applyPaint(); }
+      if (hit('KeyD') || hit('ArrowRight')) { paint.idx[paint.row] = (paint.idx[paint.row] + 1) % n; applyPaint(); }
+      if (hit('KeyW') || hit('ArrowUp') || hit('KeyS') || hit('ArrowDown')) { paint.row = 1 - paint.row; audio.blip(); drawPaint(); }
+      if (hit('KeyR')) {
+        delete save.paint[paint.veh.id]; writeSave(save);
+        renderPaint(paint.veh);
+      }
+      if (hit('Enter') || hit('Escape')) {
+        const v = paint.veh;
+        renderGarage();
+        garageSel = VEHICLES.indexOf(v);
+        setSel('.car-card', garageSel);
+      }
       break;
     }
     case 'howto':
@@ -624,6 +724,10 @@ function frame(now) {
       game.endT -= dt;
       if (game.endT <= 0) game.endFn();
     }
+  } else if (game.state === 'garage' || game.state === 'paint') {
+    const v = game.state === 'paint' ? paint.veh : VEHICLES[garageSel];
+    const ps = paintedSpec(v);
+    view.renderShowcase(dt, ps, ps.color, ps.accent, window.innerWidth >= 900);
   } else if (game.state !== 'paused') {
     view.renderIdle(dt);
   }

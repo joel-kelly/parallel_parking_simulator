@@ -165,25 +165,30 @@ export class Particles {
     this.pos = new Float32Array(max * 3);
     this.col = new Float32Array(max * 3);
     this.size = new Float32Array(max);
+    this.alpha = new Float32Array(max);
     this.data = [];
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo = geo;
     const material = new THREE.ShaderMaterial({
       uniforms: { scale: { value: 300 } },
       vertexShader: /* glsl */`
-        attribute float size; attribute vec3 color; varying vec3 vC; uniform float scale;
+        attribute float size; attribute vec3 color; attribute float alpha;
+        varying vec3 vC; varying float vA; uniform float scale;
         void main() {
-          vC = color;
+          vC = color; vA = alpha;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = size * scale / -mv.z;
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */`
-        varying vec3 vC;
-        void main() { gl_FragColor = vec4(vC, 1.0); }`,
+        varying vec3 vC; varying float vA;
+        void main() { gl_FragColor = vec4(vC, vA); }`,
+      transparent: true,
+      depthWrite: false,
     });
     this.material = material;
     this.points = new THREE.Points(geo, material);
@@ -196,12 +201,14 @@ export class Particles {
     if (this.data.length >= this.max) this.data.shift();
     this.color.set(color).convertSRGBToLinear();
     this.data.push({ x, y, z, vx, vy, vz, r: this.color.r, g: this.color.g, b: this.color.b, size, life, age: 0,
-      grav: opts.grav ?? -9, grow: opts.grow ?? 0, drag: opts.drag ?? 0 });
+      grav: opts.grav ?? -9, grow: opts.grow ?? 0, drag: opts.drag ?? 0, alpha: opts.alpha ?? 1, fade: !!opts.fade });
   }
 
   smoke(x, y, z, dark = false) {
     const c = dark ? (Math.random() < 0.5 ? EGA.dgray : EGA.black) : (Math.random() < 0.5 ? EGA.lgray : EGA.white);
-    this.emit(x, y, z, (Math.random() - 0.5) * 0.6, 1.2 + Math.random(), (Math.random() - 0.5) * 0.6, c, 0.35, 1.6 + Math.random(), { grav: 0.6, grow: 0.5, drag: 0.8 });
+    // see-through and fading, so smoke never hides the action
+    this.emit(x, y, z, (Math.random() - 0.5) * 0.6, 1.2 + Math.random(), (Math.random() - 0.5) * 0.6, c, 0.35, 1.6 + Math.random(),
+      { grav: 0.6, grow: 0.5, drag: 0.8, alpha: dark ? 0.3 : 0.45, fade: true });
   }
 
   sparks(x, y, z, n = 12, power = 4) {
@@ -249,12 +256,14 @@ export class Particles {
       this.pos[n * 3] = p.x; this.pos[n * 3 + 1] = p.y; this.pos[n * 3 + 2] = p.z;
       this.col[n * 3] = p.r; this.col[n * 3 + 1] = p.g; this.col[n * 3 + 2] = p.b;
       this.size[n] = p.size;
+      this.alpha[n] = p.fade ? p.alpha * (1 - p.age / p.life) : p.alpha;
       n++;
     }
     this.geo.setDrawRange(0, n);
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.color.needsUpdate = true;
     this.geo.attributes.size.needsUpdate = true;
+    this.geo.attributes.alpha.needsUpdate = true;
   }
 
   clear() { this.data.length = 0; }

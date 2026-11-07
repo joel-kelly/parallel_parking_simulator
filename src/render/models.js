@@ -132,12 +132,12 @@ export function buildCar(spec, color, accent = EGA.white) {
       add(cone, scoop, cherry);
     }
   } else if (style === 'weenie') {
-    const bun1 = box(L * 0.95, 0.55, 0.55, EGA.brown, 0, ride + 0.4, W * 0.28);
-    const bun2 = box(L * 0.95, 0.55, 0.55, EGA.brown, 0, ride + 0.4, -W * 0.28);
+    const bun1 = box(L * 0.95, 0.55, 0.55, color, 0, ride + 0.4, W * 0.28);
+    const bun2 = box(L * 0.95, 0.55, 0.55, color, 0, ride + 0.4, -W * 0.28);
     const dog = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, L * 0.75, 4, 8).rotateZ(Math.PI / 2), mat(EGA.lred));
     dog.position.set(0, ride + 0.95, 0); dog.castShadow = true;
     add(bun1, bun2, dog);
-    for (let i = 0; i < 6; i++) add(box(0.5, 0.06, 0.12, EGA.yellow, -L * 0.3 + i * L * 0.12, ride + 1.52, (i % 2 ? 0.15 : -0.15)));
+    for (let i = 0; i < 6; i++) add(box(0.5, 0.06, 0.12, accent, -L * 0.3 + i * L * 0.12, ride + 1.52, (i % 2 ? 0.15 : -0.15)));
     add(box(0.8, 0.5, W * 0.6, EGA.white, L * 0.3, ride + 0.85, 0));
     add(box(0.05, 0.3, W * 0.5, glass, L * 0.3 + 0.41, ride + 0.95, 0));
   } else {
@@ -374,9 +374,14 @@ export function buildBuilding(b) {
   group.add(block);
   extras.add(box(w + 0.1, 0.4, depth + 0.4, EGA.white, cx, h + 0.2, z)); // cornice
   const face = b.dir * bz0 - b.dir * 0.02;
-  for (let fy = 3.5; fy < h - 1; fy += 2.5) {
+  // Upper-floor windows: start above the shop sign and stand clear of the
+  // wall (a window half-buried in the wall flickers).
+  const out = -b.dir * 0.08;
+  let n = 0;
+  for (let fy = 4.6; fy < h - 1; fy += 2.5) {
     for (let fx = b.x0 + 1.2; fx < b.x1 - 1; fx += 2) {
-      extras.add(box(1.0, 1.3, 0.1, (Math.floor(fx + fy) % 3 === 0) ? EGA.yellow : EGA.blue, fx + 0.3, fy, face, { basic: true }));
+      const lit = (n++ * 7 + Math.round(b.x0)) % 3 === 0;
+      extras.add(box(1.0, 1.3, 0.06, lit ? EGA.yellow : EGA.blue, fx + 0.3, fy, face + out, { basic: true }));
     }
   }
   // shopfront: door, big window (in panes, so it shatters nicely), sign, awning
@@ -389,7 +394,7 @@ export function buildBuilding(b) {
   }
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 8), 1.1),
     new THREE.MeshBasicMaterial({ map: textTexture(b.name), side: THREE.DoubleSide }));
-  sign.position.set(cx, 2.85, face - b.dir * 0.05);
+  sign.position.set(cx, 2.85, face - b.dir * 0.12);
   sign.rotation.y = b.dir > 0 ? Math.PI : 0;
   facade.add(sign);
   const aw = box(w - 0.6, 0.15, 1.4, [EGA.lred, EGA.lmagenta, EGA.lgreen, EGA.lblue][Math.abs(Math.floor(b.x0)) % 4], cx, 2.25, face - b.dir * 0.7);

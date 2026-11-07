@@ -59,8 +59,10 @@ No gear shifting: stop, keep holding S, and the car goes into reverse.
 Easy +3.0m, Normal +2.0m, Hard +1.45m, Insane +1.15m. Hard and Insane need
 back-and-forth shuffles.
 
-**Points** unlock vehicles in the Garage: Za Wagon, Mr. Scoops, Ground Pounder,
-Stretch Prince (a limo, good luck) and The Weenie. Progress is saved in the browser.
+**Garage**: the Bean and the Za Wagon are free; points unlock Mr. Scoops,
+Ground Pounder, Stretch Prince (a limo, good luck) and The Weenie. Press C in the
+garage to open the **paint shop** and pick body and stripe colours from the EGA
+palette. Progress and paint jobs are saved in the browser.
 
 ## Code layout
 
