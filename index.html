@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Parallel Parking Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="popups"></div>
+  <div id="hud" class="hidden">
+    <div id="hud-tl" class="panel"></div>
+    <div id="hud-tr" class="panel"></div>
+    <div id="hud-bl" class="panel"></div>
+    <div id="hud-br" class="panel small"></div>
+    <div id="hud-center"></div>
+    <div id="hud-park" class="hidden"><div class="label">HOLD STILL...</div><div class="bar"><div id="hud-park-fill"></div></div></div>
+    <div id="bubble" class="hidden"></div>
+  </div>
+  <div id="screen"></div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

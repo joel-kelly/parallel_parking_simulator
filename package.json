@@ -1,0 +1,23 @@
+{
+  "name": "parallel-parking-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A cheeky 3D parallel parking game for the browser.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node test/sim.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joel-kelly/parallel_parking_simulator.git"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

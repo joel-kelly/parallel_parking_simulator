@@ -1,0 +1,551 @@
+import { View } from './render/view.js';
+import { Audio } from './audio.js';
+import { loadSave, writeSave } from './save.js';
+import { World } from './sim/world.js';
+import { buildLevel, DIFFICULTIES } from './sim/level.js';
+import { VEHICLES, vehicleById } from './sim/vehicles.js';
+import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
+import { gradePark } from './sim/grading.js';
+
+const $ = (id) => document.getElementById(id);
+const screen = $('screen');
+const hud = $('hud');
+
+const save = loadSave();
+const audio = new Audio();
+audio.setMuted(save.muted);
+let view;
+
+// ---------------- input ----------------
+const keys = new Set();
+const pressed = new Set();
+const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+window.addEventListener('keydown', (e) => {
+  audio.unlock();
+  if (GAME_KEYS.includes(e.code)) e.preventDefault();
+  if (!e.repeat) pressed.add(e.code);
+  keys.add(e.code);
+});
+window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('blur', () => keys.clear());
+window.addEventListener('pointerdown', () => audio.unlock());
+
+function readInput(dt) {
+  if (game.autopilot) return game.autopilot.update(dt);
+  const up = keys.has('KeyW') || keys.has('ArrowUp');
+  const down = keys.has('KeyS') || keys.has('ArrowDown');
+  const left = keys.has('KeyA') || keys.has('ArrowLeft');
+  const right = keys.has('KeyD') || keys.has('ArrowRight');
+  return {
+    throttle: (up ? 1 : 0) - (down ? 1 : 0),
+    steer: (right ? 1 : 0) - (left ? 1 : 0),
+    handbrake: keys.has('Space'),
+  };
+}
+
+// ---------------- game state ----------------
+const game = {
+  state: 'menu',   // menu | garage | howto | countdown | play | paused | results
+  mode: 'test',
+  world: null,
+  countdown: 0,
+  playTime: 0,
+  par: 2,
+  bubbleT: 0,
+  menuSel: 0,
+  result: null,
+};
+
+const MODES = [
+  { id: 'test', name: 'DRIVING TEST', desc: 'Park between two cars. Get graded by a deeply judgemental instructor.' },
+  { id: 'race', name: 'RACE THE AI', desc: 'First one parked wins. Ramming is frowned upon. Not banned. Frowned upon.' },
+  { id: 'wreck', name: 'WRECK-REATION', desc: 'No rules. Smash the town. Then file an insurance claim.' },
+  { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides.' },
+  { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, and a short lecture.' },
+];
+
+const INSTRUCTOR = {
+  start: ['Whenever you are ready. I have all day. I do not have all day.', 'Park between the cars. The spot with the big bouncing P. Subtle, I know.', 'Ten and two, please. Or don\'t. I\'m not your mum.'],
+  ding: ['I felt that in my spine.', 'That car had a family.', 'Was that... a ding? I am writing that down.', 'Gentle! It\'s a car, not a piñata.'],
+  curb: ['The curb is not a ramp.', 'We are on the sidewalk now. Lovely view.', 'Pedestrians hate this one trick.'],
+  prop: ['Did you just...?!', 'That is coming out of your deposit.', 'The town council will hear about this.'],
+  slow: ['Any day now.', 'I\'ve aged a year. Possibly two.', 'Is the car on? Are YOU on?'],
+  reverse: ['Beep. Beep. Beep.', 'Reversing! Daring!'],
+};
+const pickLine = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+function say(text, secs = 3.5) {
+  const b = $('bubble');
+  b.innerHTML = text;
+  b.classList.remove('hidden');
+  game.bubbleT = secs;
+}
+
+// ---------------- screens ----------------
+function showScreen(html) { screen.innerHTML = html; }
+function hideScreen() { screen.innerHTML = ''; }
+
+function diffObj() { return DIFFICULTIES.find((d) => d.id === save.difficulty) || DIFFICULTIES[1]; }
+
+function renderMenu() {
+  game.state = 'menu';
+  hud.classList.add('hidden');
+  const v = vehicleById(save.vehicle);
+  const d = diffObj();
+  showScreen(`
+    <div class="window">
+      <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
+      <div class="tagline">EPISODE ONE: CURB YOUR ENTHUSIASM</div>
+      <ul class="menu" id="menu">
+        ${MODES.map((m, i) => `<li data-i="${i}" class="${i === game.menuSel ? 'sel' : ''}">${m.name}<span class="desc">${m.desc}</span></li>`).join('')}
+      </ul>
+      <div class="row"><span>DIFFICULTY</span><span class="diff">&lt; ${d.name} &gt;</span></div>
+      <div class="row" style="margin-top:6px"><span></span><span style="font-size:8px;color:var(--lgray)">${d.blurb}</span></div>
+      <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
+      <div class="hint">W/S OR ARROWS + ENTER TO PICK &bull; A/D TO CHANGE DIFFICULTY<br>M MUTE &bull; P TOGGLE RETRO COLOURS</div>
+    </div>`);
+  screen.querySelectorAll('#menu li').forEach((li) => {
+    li.addEventListener('mouseenter', () => { game.menuSel = +li.dataset.i; highlightMenu(); });
+    li.addEventListener('click', () => { game.menuSel = +li.dataset.i; menuSelect(); });
+  });
+  screen.querySelector('.diff').addEventListener('click', () => changeDiff(1));
+}
+
+function highlightMenu() {
+  screen.querySelectorAll('#menu li').forEach((li, i) => li.classList.toggle('sel', i === game.menuSel));
+}
+
+function changeDiff(dir) {
+  const i = DIFFICULTIES.findIndex((d) => d.id === save.difficulty);
+  save.difficulty = DIFFICULTIES[(i + dir + DIFFICULTIES.length) % DIFFICULTIES.length].id;
+  writeSave(save);
+  audio.blip();
+  renderMenu();
+}
+
+function menuSelect() {
+  audio.select();
+  const m = MODES[game.menuSel];
+  if (m.id === 'garage') renderGarage();
+  else if (m.id === 'howto') renderHowTo();
+  else startGame(m.id);
+}
+
+let garageSel = 0;
+function renderGarage(msg = '') {
+  game.state = 'garage';
+  garageSel = Math.max(0, VEHICLES.findIndex((v) => v.id === save.vehicle));
+  drawGarage(msg);
+}
+function drawGarage(msg = '') {
+  const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+  showScreen(`
+    <div class="window" style="max-width:900px">
+      <h2>THE GARAGE</h2>
+      <div class="row" style="max-width:none;margin:0 0 16px"><span>POINTS: <span class="k">${save.points}</span></span><span class="good">${msg}</span></div>
+      <div class="garage">
+        ${VEHICLES.map((v, i) => {
+          const owned = save.unlocked.includes(v.id);
+          const cls = ['car-card', i === garageSel ? 'sel' : '', owned ? '' : 'locked'].join(' ');
+          const best = DIFFICULTIES.map((d) => save.best[`${v.id}:${d.id}`]).filter(Boolean);
+          return `<div class="${cls}" data-i="${i}">
+            <div class="name"><span class="swatch" style="background:${hex(v.color)}"></span>${v.name}</div>
+            <div class="blurb">${v.blurb}</div>
+            <div>LENGTH ${v.length.toFixed(1)}M</div>
+            <div class="price">${owned ? (save.vehicle === v.id ? '<span class="good">&#9654; DRIVING</span>' : 'OWNED') : (save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`)}</div>
+            ${best.length ? `<div style="font-size:8px;color:var(--lgray)">BEST ${Math.max(...best)}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="hint">ARROWS TO BROWSE &bull; ENTER TO BUY / DRIVE &bull; ESC TO GO BACK</div>
+    </div>`);
+  screen.querySelectorAll('.car-card').forEach((el) => {
+    el.addEventListener('click', () => { garageSel = +el.dataset.i; garageAction(); });
+  });
+}
+function garageAction() {
+  const v = VEHICLES[garageSel];
+  if (save.unlocked.includes(v.id)) {
+    save.vehicle = v.id; writeSave(save); audio.select(); drawGarage(`${v.name} SELECTED`);
+  } else if (save.points >= v.cost) {
+    save.points -= v.cost; save.unlocked.push(v.id); save.vehicle = v.id; writeSave(save);
+    audio.jingle(true); drawGarage(`BOUGHT ${v.name}!`);
+  } else {
+    audio.tone(110, 0.2, 'square', 0.1); drawGarage(`NEED ${v.cost - save.points} MORE POINTS`);
+  }
+}
+
+function renderHowTo() {
+  game.state = 'howto';
+  showScreen(`
+    <div class="window howto">
+      <h2>HOW TO PLAY</h2>
+      <div><span class="k">W / UP</span> GAS (OR BRAKE, IF ROLLING BACKWARD)</div>
+      <div><span class="k">S / DOWN</span> BRAKE, THEN REVERSE</div>
+      <div><span class="k">A D / ARROWS</span> STEER</div>
+      <div><span class="k">SPACE</span> HANDBRAKE (DRIFT, IF YOU MUST)</div>
+      <div><span class="k">C</span> CHANGE CAMERA (TOP-DOWN IS GREAT FOR PARKING)</div>
+      <div><span class="k">H</span> HORN</div>
+      <div><span class="k">R</span> RESTART &nbsp; <span class="k">ESC</span> PAUSE</div>
+      <div><span class="k">ENTER</span> CASH OUT (WRECK MODE)</div>
+      <div><span class="k">I</span> LET THE INSTRUCTOR PARK (DRIVING TEST, NO POINTS)</div>
+      <p style="color:var(--lgray);font-size:9px;line-height:2">
+        NO GEARS TO FIDDLE WITH: STOP, THEN HOLD S TO GO BACKWARD. EACH TIME YOU SWITCH
+        DIRECTION IT COUNTS AS A MOVE. BEAT THE INSTRUCTOR'S PAR FOR FULL MARKS.<br><br>
+        TO PARK: STOP INSIDE THE SPOT, CLOSE TO THE CURB, MORE OR LESS STRAIGHT, AND HOLD STILL.<br><br>
+        CLASSIC TECHNIQUE: PULL UP ALONGSIDE THE FRONT CAR. REVERSE WITH FULL RIGHT LOCK
+        UNTIL YOU'RE AT ~45&deg;. THEN FULL LEFT LOCK AS YOU SWING IN. SHUFFLE IF NEEDED.
+      </p>
+      <div class="hint">ESC OR ENTER TO GO BACK</div>
+    </div>`);
+}
+
+// ---------------- gameplay ----------------
+function startGame(mode) {
+  game.mode = mode;
+  const vehicle = vehicleById(save.vehicle);
+  const diff = diffObj();
+  const seed = Math.floor(Math.random() * 1e9);
+  const level = buildLevel({ mode, difficulty: diff.id, vehicle, seed });
+  const opts = {};
+  if (mode === 'race') {
+    opts.aiSpec = vehicle;
+    opts.aiProfile = AI_PROFILES[diff.id];
+  }
+  const world = new World(level, vehicle, opts);
+  game.world = world;
+  game.playTime = 0;
+  game.idleT = 0;
+  game.saidReverse = false;
+  game.result = null;
+  game.autopilot = null;
+  if (world.playerSpot) {
+    const plan = planPark(world, world.playerSpot, vehicle);
+    game.par = plan ? plan.moves : 6;
+  }
+  view.load(world);
+  hideScreen();
+  hud.classList.remove('hidden');
+  $('bubble').classList.add('hidden');
+  game.state = 'countdown';
+  game.countdown = mode === 'race' ? 3.99 : 1.2;
+  game.lastCount = 99;
+  if (mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.start)}`, 5);
+  if (mode === 'race') say(`<b>${opts.aiProfile.name}:</b> "${opts.aiProfile.taunt}"`, 4);
+  if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Press ENTER to file your insurance claim.', 5);
+}
+
+function updateHUD() {
+  const w = game.world;
+  const p = w.player;
+  const t = game.playTime.toFixed(1);
+  const mode = MODES.find((m) => m.id === game.mode).name;
+  let tl = `<div class="k">${mode}</div>`;
+  if (game.mode === 'wreck') {
+    tl += `<div>DAMAGE <span class="bad">$${w.destruction.toLocaleString()}</span></div>`;
+    tl += `<div>THINGS BROKEN <span class="v">${p.propsBroken}</span></div>`;
+    tl += `<div>CARS WRECKED <span class="v">${w.parked.filter((c) => c.wrecked).length}</span></div>`;
+  } else {
+    tl += `<div>TIME <span class="v">${t}s</span></div>`;
+    tl += `<div>MOVES <span class="v">${p.moves}</span> <span style="color:var(--lgray)">PAR ${game.par}</span></div>`;
+    tl += `<div>DINGS <span class="${p.dings ? 'bad' : 'v'}">${p.dings}</span></div>`;
+  }
+  $('hud-tl').innerHTML = tl;
+
+  let tr = `<div>${diffObj().name}</div><div>PTS <span class="k">${save.points}</span></div>`;
+  if (game.mode === 'race' && w.ai) {
+    const a = w.ai.car;
+    const status = a.parked ? '<span class="bad">PARKED!</span>' : w.ai.driver.gaveUp ? '<span class="good">GAVE UP</span>' : 'PARKING...';
+    tr += `<div style="color:var(--lmagenta)">${w.ai.driver.p.name}</div><div>${status}</div>`;
+  }
+  $('hud-tr').innerHTML = tr;
+
+  const kmh = Math.round(Math.abs(p.speed) * 3.6);
+  let bl = `<div class="gear ${p.gear === 'R' ? 'r' : ''}">${p.gear}</div><div><div>${kmh} KM/H</div>`;
+  if (p.lastEval && (p.lastEval.inSpot || p.lastEval.curbDist < 2.5) && game.mode !== 'wreck') {
+    const e = p.lastEval;
+    const cd = e.curbDist < 0 ? '<span class="bad">ON CURB</span>' : `<span class="${e.curbDist < 0.35 ? 'good' : 'v'}">${e.curbDist.toFixed(2)}M</span>`;
+    bl += `<div style="font-size:9px">CURB ${cd} &nbsp;ANGLE <span class="${e.angle < 3 ? 'good' : 'v'}">${e.angle.toFixed(0)}&deg;</span></div>`;
+  }
+  bl += '</div>';
+  $('hud-bl').innerHTML = bl;
+  $('hud-br').innerHTML = `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${game.mode === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}`;
+
+  const park = $('hud-park');
+  if (p.parkTimer > 0 && !p.parked) {
+    park.classList.remove('hidden');
+    $('hud-park-fill').style.width = `${Math.min(100, p.parkTimer / 1.5 * 100)}%`;
+  } else park.classList.add('hidden');
+}
+
+function handleEvents(events) {
+  const w = game.world;
+  for (const e of events) {
+    view.handle(e);
+    if (e.type === 'ding') {
+      if (e.car.isPlayer || e.impact > 1) audio.crash(e.impact);
+      if (e.car.isPlayer && game.mode === 'test' && e.impact > 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.ding)}`);
+    } else if (e.type === 'break') {
+      audio.crash(3);
+      if (e.prop.type === 'meter') audio.coin();
+      if (game.mode === 'test' && e.by && e.by.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.prop)}`);
+    } else if (e.type === 'wreck') audio.boom();
+    else if (e.type === 'smash') audio.smash();
+    else if (e.type === 'curb' && e.car.isPlayer) {
+      audio.curb();
+      if (game.mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.curb)}`);
+    } else if (e.type === 'parked') {
+      audio.jingle(e.car.isPlayer);
+    }
+  }
+  if (game.state !== 'play') return;
+  // end conditions
+  if (game.mode === 'test' && w.player.parked) finishTest();
+  if (game.mode === 'race') {
+    if (w.player.parked) finishRace(true);
+    else if (w.ai.car.parked) finishRace(false);
+  }
+}
+
+function finishTest() {
+  const w = game.world;
+  const r = gradePark({ car: w.player, evalResult: w.player.finalEval, time: game.playTime, par: game.par, difficulty: diffObj() });
+  if (game.autopilot) {
+    r.points = 0;
+    r.quip = 'The instructor parked it. You get nothing. Good day, sir.';
+  }
+  awardPoints(r.points);
+  const key = `${save.vehicle}:${save.difficulty}`;
+  const isBest = !game.autopilot && (!save.best[key] || r.score > save.best[key]);
+  if (isBest) save.best[key] = r.score;
+  writeSave(save);
+  endWith(() => renderResults({
+    title: 'TEST COMPLETE',
+    grade: r.letter, gradeTitle: r.title, quip: r.quip, items: r.items,
+    total: `SCORE ${r.score}${isBest ? ' (NEW BEST!)' : ''}`, points: r.points,
+  }));
+}
+
+function finishRace(won, forfeit = false) {
+  const w = game.world;
+  const d = diffObj();
+  let points = 0, quip, grade;
+  const ai = w.ai.driver.p;
+  if (won) {
+    points = Math.round((150 + Math.max(0, 60 - game.playTime) * 3 - w.player.dings * 15) * d.mult);
+    points = Math.max(20, points);
+    if (forfeit) points = Math.round(points * 0.5);
+    grade = 'WIN';
+    quip = forfeit ? `${ai.name} gave up and called a tow truck. A win is a win. (Half points.)`
+      : pickLine([`${ai.name} is furious. Sublime.`, `You beat ${ai.name}. They will remember this.`, 'Victory! Your insurance premiums remain unchanged.']);
+    save.wins++;
+  } else {
+    points = 15;
+    grade = 'LOSE';
+    quip = pickLine([`${ai.name}: "${ai.taunt}"`, 'Beaten by a computer. It happens to the best of us. And to you.', `${ai.name} parked in ${w.ai.car.parkedAt.toFixed(1)}s. Just saying.`]);
+  }
+  awardPoints(points);
+  writeSave(save);
+  const items = [
+    { label: 'YOUR TIME', pts: null, detail: won ? `${game.playTime.toFixed(1)}s` : 'DNF' },
+    { label: 'DINGS', pts: null, detail: String(w.player.dings) },
+    { label: 'MOVES', pts: null, detail: String(w.player.moves) },
+  ];
+  endWith(() => renderResults({ title: won ? 'YOU WIN!' : 'YOU LOSE!', grade, gradeTitle: won ? 'SPEED PARKER' : 'SECOND PLACE (OF TWO)', quip, items, total: '', points }));
+}
+
+function finishWreck() {
+  const w = game.world;
+  const points = Math.min(500, Math.round(w.destruction / 150));
+  awardPoints(points);
+  writeSave(save);
+  const wrecked = w.parked.filter((c) => c.wrecked).length;
+  const quip = w.destruction > 60000 ? 'The town has been renamed in your honour. It is now called "The Crater".'
+    : w.destruction > 20000 ? 'Your insurer has entered witness protection.'
+      : w.destruction > 5000 ? 'A respectable amount of chaos. The mayor is concerned.'
+        : 'That is barely a fender bender. Are you even trying?';
+  endWith(() => renderResults({
+    title: 'INSURANCE CLAIM', grade: `$${Math.round(w.destruction / 1000)}K`, gradeTitle: 'TOTAL DAMAGES',
+    quip,
+    items: [
+      { label: 'THINGS SMASHED', detail: String(w.player.propsBroken) },
+      { label: 'CARS WRECKED', detail: String(wrecked) },
+      { label: 'YOUR CAR', detail: w.player.damage > 200 ? 'A SMOKING RUIN' : w.player.damage > 60 ? 'DENTED' : 'SUSPICIOUSLY FINE' },
+    ],
+    total: '', points,
+  }));
+}
+
+function awardPoints(n) {
+  const before = save.points;
+  save.points += n;
+  save.totalEarned += n;
+  game.newlyAffordable = VEHICLES.filter((v) => !save.unlocked.includes(v.id) && v.cost > before && v.cost <= save.points);
+}
+
+function endWith(fn) {
+  game.state = 'ending';
+  game.endT = 1.6;
+  game.endFn = fn;
+}
+
+function renderResults(r) {
+  game.state = 'results';
+  hud.classList.add('hidden');
+  const items = (r.items || []).map((it) => `<div class="line"><span>${it.label}</span><span class="d">${it.detail || ''}</span><span class="${it.pts < 0 ? 'bad' : ''}">${it.pts == null ? '' : it.pts}</span></div>`).join('');
+  const unlock = game.newlyAffordable && game.newlyAffordable.length
+    ? `<div class="good" style="font-size:10px;margin-top:12px">NEW RIDE AFFORDABLE: ${game.newlyAffordable.map((v) => v.name).join(', ')}! VISIT THE GARAGE.</div>` : '';
+  showScreen(`
+    <div class="window results">
+      <h2>${r.title}</h2>
+      <div class="grade" style="${r.grade.length > 2 ? 'font-size:56px' : ''}">${r.grade}</div>
+      <div class="grade-title">${r.gradeTitle}</div>
+      <div class="quip">${r.quip}</div>
+      <div class="breakdown">${items}</div>
+      ${r.total ? `<div class="total">${r.total}</div>` : ''}
+      <div class="total">+${r.points} POINTS &nbsp; <span style="color:var(--lgray)">(TOTAL ${save.points})</span></div>
+      ${unlock}
+      <div class="hint">ENTER: GO AGAIN &bull; G: GARAGE &bull; ESC: MENU</div>
+    </div>`);
+}
+
+function renderPause() {
+  game.state = 'paused';
+  showScreen(`
+    <div class="window" style="max-width:420px;text-align:center">
+      <h2>PAUSED</h2>
+      <p style="font-size:10px;line-height:2;color:var(--lgray)">THE INSTRUCTOR SIGHS AUDIBLY.</p>
+      <div class="hint" style="font-size:10px">ESC: RESUME &bull; R: RESTART &bull; Q: QUIT TO MENU</div>
+    </div>`);
+}
+
+// ---------------- per-state key handling ----------------
+function handleKeys() {
+  const hit = (c) => pressed.has(c);
+  if (hit('KeyM')) { save.muted = !save.muted; audio.setMuted(save.muted); writeSave(save); }
+  if (hit('KeyP')) { save.ega = !save.ega; view.setEga(save.ega); writeSave(save); }
+
+  switch (game.state) {
+    case 'menu':
+      if (hit('KeyW') || hit('ArrowUp')) { game.menuSel = (game.menuSel + MODES.length - 1) % MODES.length; highlightMenu(); audio.blip(); }
+      if (hit('KeyS') || hit('ArrowDown')) { game.menuSel = (game.menuSel + 1) % MODES.length; highlightMenu(); audio.blip(); }
+      if (hit('KeyA') || hit('ArrowLeft')) changeDiff(-1);
+      if (hit('KeyD') || hit('ArrowRight')) changeDiff(1);
+      if (hit('Enter') || hit('Space')) menuSelect();
+      break;
+    case 'garage': {
+      const cols = Math.max(1, Math.round((screen.querySelector('.garage')?.clientWidth || 600) / 212));
+      let moved = false;
+      if (hit('KeyA') || hit('ArrowLeft')) { garageSel = (garageSel + VEHICLES.length - 1) % VEHICLES.length; moved = true; }
+      if (hit('KeyD') || hit('ArrowRight')) { garageSel = (garageSel + 1) % VEHICLES.length; moved = true; }
+      if (hit('KeyW') || hit('ArrowUp')) { garageSel = Math.max(0, garageSel - cols); moved = true; }
+      if (hit('KeyS') || hit('ArrowDown')) { garageSel = Math.min(VEHICLES.length - 1, garageSel + cols); moved = true; }
+      if (moved) { audio.blip(); drawGarage(); }
+      if (hit('Enter') || hit('Space')) garageAction();
+      if (hit('Escape')) renderMenu();
+      break;
+    }
+    case 'howto':
+      if (hit('Escape') || hit('Enter')) renderMenu();
+      break;
+    case 'countdown':
+    case 'play':
+      if (hit('Escape')) { renderPause(); break; }
+      if (hit('KeyR')) { startGame(game.mode); break; }
+      if (hit('KeyC')) view.cycleCamera();
+      if (hit('KeyH')) audio.horn(game.world.player.spec.style);
+      if (game.state === 'play' && game.mode === 'wreck' && hit('Enter')) finishWreck();
+      if (game.state === 'play' && game.mode === 'test' && hit('KeyI') && !game.autopilot) {
+        const w = game.world;
+        game.autopilot = new AIDriver(w, w.player, w.playerSpot, AI_PROFILES.normal);
+        say('<b>INSTRUCTOR:</b> Oh, for heaven\'s sake. Move over. Watch and learn.', 5);
+      }
+      break;
+    case 'paused':
+      if (hit('Escape')) { hideScreen(); game.state = 'play'; }
+      if (hit('KeyR')) startGame(game.mode);
+      if (hit('KeyQ')) renderMenu();
+      break;
+    case 'results':
+      if (hit('Enter') || hit('Space')) startGame(game.mode);
+      if (hit('KeyG')) renderGarage();
+      if (hit('Escape')) renderMenu();
+      break;
+    default:
+  }
+  pressed.clear();
+}
+
+// ---------------- main loop ----------------
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  handleKeys();
+
+  const w = game.world;
+  if (game.bubbleT > 0) { game.bubbleT -= dt; if (game.bubbleT <= 0) $('bubble').classList.add('hidden'); }
+
+  if (game.state === 'countdown') {
+    game.countdown -= dt;
+    const n = Math.ceil(game.countdown);
+    if (game.mode === 'race' && n !== game.lastCount && n > 0) { audio.countdown(false); game.lastCount = n; }
+    $('hud-center').innerHTML = game.mode === 'race' ? (n > 0 ? String(n) : '') : '';
+    if (game.countdown <= 0) {
+      game.state = 'play';
+      if (game.mode === 'race') {
+        audio.countdown(true);
+        $('hud-center').innerHTML = 'PARK!';
+        setTimeout(() => { if ($('hud-center').innerHTML === 'PARK!') $('hud-center').innerHTML = ''; }, 900);
+      }
+    }
+    view.update(dt);
+    updateHUD();
+  } else if (game.state === 'play' || game.state === 'ending') {
+    const input = game.state === 'play' ? readInput(dt) : { throttle: 0, steer: 0, handbrake: true };
+    w.step(dt, input);
+    game.playTime += game.state === 'play' ? dt : 0;
+    handleEvents(w.drainEvents());
+    if (game.state === 'play' && game.mode === 'race' && w.ai.driver.gaveUp && !w.ai.car.parked) finishRace(true, true);
+
+    // instructor nags
+    if (game.mode === 'test' && game.state === 'play') {
+      if (Math.abs(w.player.speed) < 0.05) game.idleT += dt; else game.idleT = 0;
+      if (game.idleT > 12) { say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.slow)}`); game.idleT = 0; }
+      if (!game.saidReverse && w.player.gear === 'R' && w.player.speed < -0.5) { game.saidReverse = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.reverse)}`, 2); }
+    }
+
+    audio.engine(w.player.speed, input.throttle, true);
+    audio.reverseBeep(dt, w.player.gear === 'R' && w.player.speed < -0.2);
+    view.update(dt);
+    updateHUD();
+    if (game.state === 'ending') {
+      game.endT -= dt;
+      if (game.endT <= 0) { audio.engine(0, 0, false); game.endFn(); }
+    }
+  } else if (game.state === 'paused') {
+    audio.engine(0, 0, false);
+  } else {
+    audio.engine(0, 0, false);
+    view.renderIdle(dt);
+  }
+  requestAnimationFrame(frame);
+}
+
+async function boot() {
+  try { await document.fonts.load('16px "Press Start 2P"'); } catch (e) { /* fall back to monospace */ }
+  view = new View($('game'), $('popups'));
+  view.setEga(save.ega);
+  // a scenic wreck-mode street behind the menu
+  const vehicle = vehicleById(save.vehicle);
+  const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7 });
+  const world = new World(level, vehicle, {});
+  game.world = world;
+  view.load(world);
+  renderMenu();
+  requestAnimationFrame(frame);
+}
+
+if (import.meta.env.DEV) window.__pps = { game, save };
+
+boot();
