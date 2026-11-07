@@ -94,37 +94,44 @@ function renderMenu() {
   game.pendingMode = null;
   hud.classList.add('hidden');
   const v = vehicleById(save.vehicle);
-  const d = diffObj();
   showScreen(`
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
       <div class="tagline">EPISODE ONE: CURB YOUR ENTHUSIASM</div>
-      ${save.tutorialSeen ? '' : '<div class="tagline" style="color:var(--lgreen);margin-top:-12px">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
+      ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
-        ${MODES.map((m, i) => `<li data-i="${i}" class="${i === game.menuSel ? 'sel' : ''}">${m.name}<span class="desc">${m.desc}</span></li>`).join('')}
+        ${MODES.map((m, i) => `<li data-i="${i}">${m.name}</li>`).join('')}
       </ul>
-      <div class="row"><span>DIFFICULTY</span><span class="diff">&lt; ${d.name} &gt;</span></div>
-      <div class="row" style="margin-top:6px"><span></span><span style="font-size:8px;color:var(--lgray)">${d.blurb}</span></div>
+      <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S OR ARROWS + ENTER TO PICK &bull; A/D TO CHANGE DIFFICULTY<br>M MUTE &bull; P TOGGLE RETRO COLOURS</div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS</div>
     </div>`);
-  screen.querySelectorAll('#menu li').forEach((li) => {
-    li.addEventListener('mouseenter', () => { game.menuSel = +li.dataset.i; highlightMenu(); });
-    li.addEventListener('click', () => { game.menuSel = +li.dataset.i; menuSelect(); });
+  bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
+  highlightMenu();
+}
+
+// Mouse support for a list: hover selects, click activates.
+function bindList(selector, onHover, onClick) {
+  screen.querySelectorAll(selector).forEach((el) => {
+    const i = +el.dataset.i;
+    el.addEventListener('mouseenter', () => onHover(i));
+    el.addEventListener('click', () => { onHover(i); onClick(i); });
   });
-  screen.querySelector('.diff').addEventListener('click', () => changeDiff(1));
+}
+
+// Moves the highlight without rebuilding the screen (so scrolling is kept),
+// and scrolls the selected item into view on short screens.
+function setSel(selector, idx) {
+  screen.querySelectorAll(selector).forEach((el, i) => {
+    el.classList.toggle('sel', i === idx);
+    if (i === idx) el.scrollIntoView({ block: 'nearest' });
+  });
 }
 
 function highlightMenu() {
-  screen.querySelectorAll('#menu li').forEach((li, i) => li.classList.toggle('sel', i === game.menuSel));
-}
-
-function changeDiff(dir) {
-  const i = DIFFICULTIES.findIndex((d) => d.id === save.difficulty);
-  save.difficulty = DIFFICULTIES[(i + dir + DIFFICULTIES.length) % DIFFICULTIES.length].id;
-  writeSave(save);
-  audio.blip();
-  renderMenu();
+  setSel('#menu li', game.menuSel);
+  const d = $('menu-desc');
+  if (d) d.textContent = MODES[game.menuSel].desc;
 }
 
 function menuSelect() {
@@ -132,7 +139,43 @@ function menuSelect() {
   const m = MODES[game.menuSel];
   if (m.id === 'garage') renderGarage();
   else if (m.id === 'howto') renderHowTo();
+  else if (m.id === 'test' || m.id === 'race') renderDifficulty(m.id);
   else startGame(m.id);
+}
+
+// ---- difficulty picker (shown after choosing Driving Test or Race) ----
+let diffSel = 1;
+let diffMode = 'test';
+function renderDifficulty(mode) {
+  game.state = 'difficulty';
+  diffMode = mode;
+  diffSel = Math.max(0, DIFFICULTIES.findIndex((d) => d.id === save.difficulty));
+  const m = MODES.find((x) => x.id === mode);
+  const opp = (d) => (mode === 'race' ? `VS ${AI_PROFILES[d.id].name}` : '');
+  const best = (d) => {
+    const b = save.best[`${save.vehicle}:${d.id}`];
+    return mode === 'test' && b ? `BEST ${b}` : '';
+  };
+  showScreen(`
+    <div class="window" style="max-width:600px">
+      <h2>${m.name}</h2>
+      <div class="tagline" style="margin-top:0">HOW TIGHT A SPOT CAN YOU HANDLE?</div>
+      <ul class="menu" id="diffs">
+        ${DIFFICULTIES.map((d, i) => `<li data-i="${i}">${d.name}<span class="desc">${d.blurb}<br>
+          <span style="color:var(--lgreen)">+${d.margin.toFixed(2)}M SPARE &bull; x${d.mult} POINTS</span>
+          ${opp(d) || best(d) ? `<br><span style="color:var(--lmagenta)">${opp(d) || best(d)}</span>` : ''}</span></li>`).join('')}
+      </ul>
+      <div class="hint">W/S + ENTER TO START &bull; ESC TO GO BACK</div>
+    </div>`);
+  bindList('#diffs li', (i) => { diffSel = i; setSel('#diffs li', diffSel); }, () => pickDifficulty());
+  setSel('#diffs li', diffSel);
+}
+
+function pickDifficulty() {
+  save.difficulty = DIFFICULTIES[diffSel].id;
+  writeSave(save);
+  audio.select();
+  startGame(diffMode);
 }
 
 let garageSel = 0;
@@ -143,6 +186,7 @@ function renderGarage(msg = '') {
 }
 function drawGarage(msg = '') {
   const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+  const scroll = screen.querySelector('.window')?.scrollTop || 0;
   showScreen(`
     <div class="window" style="max-width:900px">
       <h2>THE GARAGE</h2>
@@ -163,6 +207,7 @@ function drawGarage(msg = '') {
       </div>
       <div class="hint">ARROWS TO BROWSE &bull; ENTER TO BUY / DRIVE &bull; ESC TO GO BACK</div>
     </div>`);
+  screen.querySelector('.window').scrollTop = scroll;
   screen.querySelectorAll('.car-card').forEach((el) => {
     el.addEventListener('click', () => { garageSel = +el.dataset.i; garageAction(); });
   });
@@ -476,9 +521,13 @@ function handleKeys() {
     case 'menu':
       if (hit('KeyW') || hit('ArrowUp')) { game.menuSel = (game.menuSel + MODES.length - 1) % MODES.length; highlightMenu(); audio.blip(); }
       if (hit('KeyS') || hit('ArrowDown')) { game.menuSel = (game.menuSel + 1) % MODES.length; highlightMenu(); audio.blip(); }
-      if (hit('KeyA') || hit('ArrowLeft')) changeDiff(-1);
-      if (hit('KeyD') || hit('ArrowRight')) changeDiff(1);
       if (hit('Enter') || hit('Space')) menuSelect();
+      break;
+    case 'difficulty':
+      if (hit('KeyW') || hit('ArrowUp')) { diffSel = (diffSel + DIFFICULTIES.length - 1) % DIFFICULTIES.length; setSel('#diffs li', diffSel); audio.blip(); }
+      if (hit('KeyS') || hit('ArrowDown')) { diffSel = (diffSel + 1) % DIFFICULTIES.length; setSel('#diffs li', diffSel); audio.blip(); }
+      if (hit('Enter') || hit('Space')) pickDifficulty();
+      if (hit('Escape')) renderMenu();
       break;
     case 'garage': {
       const cols = Math.max(1, Math.round((screen.querySelector('.garage')?.clientWidth || 600) / 212));
@@ -487,7 +536,7 @@ function handleKeys() {
       if (hit('KeyD') || hit('ArrowRight')) { garageSel = (garageSel + 1) % VEHICLES.length; moved = true; }
       if (hit('KeyW') || hit('ArrowUp')) { garageSel = Math.max(0, garageSel - cols); moved = true; }
       if (hit('KeyS') || hit('ArrowDown')) { garageSel = Math.min(VEHICLES.length - 1, garageSel + cols); moved = true; }
-      if (moved) { audio.blip(); drawGarage(); }
+      if (moved) { audio.blip(); setSel('.car-card', garageSel); }
       if (hit('Enter') || hit('Space')) garageAction();
       if (hit('Escape')) renderMenu();
       break;
