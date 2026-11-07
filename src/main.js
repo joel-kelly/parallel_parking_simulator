@@ -104,7 +104,7 @@ function renderMenu() {
       </ul>
       <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS</div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
     </div>`);
   bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
   highlightMenu();
@@ -677,7 +677,20 @@ function handleKeys() {
 
 // ---------------- main loop ----------------
 let last = performance.now();
+let frameErrors = 0;
 function frame(now) {
+  // One bad frame shouldn't freeze the game: keep the loop alive and report it.
+  try {
+    step(now);
+  } catch (e) {
+    frameErrors++;
+    console.error(e);
+    if (frameErrors === 1) say(`<b>OOPS:</b> something glitched (${e.message}). If things look wrong, press R or reload.`, 8);
+  }
+  requestAnimationFrame(frame);
+}
+
+function step(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   handleKeys();
@@ -731,12 +744,24 @@ function frame(now) {
   } else if (game.state !== 'paused') {
     view.renderIdle(dt);
   }
-  requestAnimationFrame(frame);
 }
 
 async function boot() {
-  try { await document.fonts.load('16px "Press Start 2P"'); } catch (e) { /* fall back to monospace */ }
-  view = new View($('game'), $('popups'));
+  // Don't let a slow font download hold up the game.
+  try {
+    await Promise.race([document.fonts.load('16px "Press Start 2P"'), new Promise((r) => setTimeout(r, 2500))]);
+  } catch (e) { /* fall back to monospace */ }
+  try {
+    view = new View($('game'), $('popups'));
+  } catch (e) {
+    window.__ppsFail('GRAPHICS TROUBLE', `Your browser couldn't start WebGL, which the game needs.<br><br>
+      Try reloading, restarting the browser, or turning on hardware acceleration.<br><br>(${e.message})`);
+    return;
+  }
+  $('game').addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    window.__ppsFail('GRAPHICS CRASHED', 'Your browser reset the graphics. Reload the page to keep playing.');
+  });
   view.setEga(save.ega);
   // a scenic wreck-mode street behind the menu
   const vehicle = vehicleById(save.vehicle);
@@ -745,6 +770,8 @@ async function boot() {
   game.world = world;
   view.load(world);
   renderMenu();
+  window.__ppsBooted = true;
+  $('boot-msg').style.display = 'none';
   requestAnimationFrame(frame);
 }
 
