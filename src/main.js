@@ -90,6 +90,45 @@ function hideScreen() { screen.innerHTML = ''; }
 
 function diffObj() { return DIFFICULTIES.find((d) => d.id === save.difficulty) || DIFFICULTIES[1]; }
 
+// Rotating slogans under the logo, like loading-screen quips.
+const SLOGANS = [
+  'EPISODE ONE: CURB YOUR ENTHUSIASM',
+  'NOW WITH 40% MORE CURB',
+  'OBJECTS IN MIRROR ARE CLOSER THAN THEY APPEAR',
+  'YOUR INSURANCE PROVIDER HAS BEEN NOTIFIED',
+  'TIP: THE BRAKE IS ALSO A PEDAL',
+  'TIP: HONKING DOES NOT MAKE THE SPOT BIGGER',
+  "IT'S NOT A DENT. IT'S CHARACTER.",
+  'REVERSE IS JUST FORWARD WITH TRUST ISSUES',
+  "THE SPOT IS BIGGER THAN IT LOOKS. IT ISN'T.",
+  'NO PEDESTRIANS WERE HARMED. THEY LEFT.',
+  'TIP: THE CURB IS NOT A SUGGESTION',
+  'TIP: CHECK YOUR MIRRORS. ADMIRE YOURSELF.',
+  'TIP: A 47-POINT TURN IS STILL A TURN',
+  'TIP: THE PERSON BEHIND YOU IS JUDGING YOU',
+  'TIP: THAT NOISE WAS PROBABLY FINE',
+  'TIP: SIGNAL. NOBODY ELSE WILL.',
+  'RATED E FOR EVENTUALLY',
+  'LOADING SMUG ONLOOKERS...',
+  'WARNING: CONTAINS TIGHT SPOTS',
+  'BUMPERS: THEY ARE FOR BUMPING',
+  'ESTABLISHED 1991. LICENSE PENDING.',
+  'SHAREWARE! PLEASE REGISTER YOUR BUMPER.',
+  'AS SEEN ON A DRIVING TEST NEAR YOU',
+  'THE METER IS RUNNING. SO IS YOUR NOSE.',
+  'NOW PARKING: ABSOLUTELY NOBODY',
+];
+let sloganIdx = 0;
+setInterval(() => {
+  const el = $('slogan');
+  if (!el) return;
+  let next = sloganIdx;
+  while (next === sloganIdx) next = Math.floor(Math.random() * SLOGANS.length);
+  sloganIdx = next;
+  el.classList.add('out');
+  setTimeout(() => { el.textContent = SLOGANS[sloganIdx]; el.classList.remove('out'); }, 350);
+}, 4500);
+
 function renderMenu() {
   game.state = 'menu';
   game.pendingMode = null;
@@ -98,7 +137,7 @@ function renderMenu() {
   showScreen(`
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
-      <div class="tagline">EPISODE ONE: CURB YOUR ENTHUSIASM</div>
+      <div class="tagline slogan" id="slogan">${SLOGANS[sloganIdx]}</div>
       ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MODES.map((m, i) => `<li data-i="${i}">${m.name}</li>`).join('')}
