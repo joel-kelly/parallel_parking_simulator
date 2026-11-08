@@ -2,37 +2,40 @@
 // player does and moves on once they've done it.
 
 const key = (k) => `<span class="key">${k}</span>`;
+// Keyboard label, or controller label when playing with a pad.
+const k = (kb, pad) => (p) => key(p ? pad : kb);
 
 const STEPS = [
   {
-    text: `Hold ${key('W')} to drive forward.`,
+    text: (p) => `Hold ${k('W', 'RT')(p)} to drive forward.${p ? '<br><small>Or push the right stick up.</small>' : ''}`,
     done: (t) => t.forward > 6,
   },
   {
-    text: `Steer with ${key('A')} and ${key('D')}. Try both ways.`,
+    text: (p) => p ? `Steer with the ${key('LEFT STICK')}. Try both ways.` : `Steer with ${key('A')} and ${key('D')}. Try both ways.`,
     done: (t) => t.steeredLeft && t.steeredRight,
   },
   {
-    text: `Hold ${key('S')} to brake. Keep holding it to reverse.<br><small>No gears to shift: it flips from D to R by itself.</small>`,
+    text: (p) => `Hold ${k('S', 'LT')(p)} to brake. Keep holding it to reverse.<br><small>${p ? 'Or pull the right stick down. ' : ''}No gears to shift: it flips from D to R by itself.</small>`,
     done: (t) => t.reverse > 2,
   },
   {
-    text: `Press ${key('C')} to change the camera.<br><small>Top-down is great for parking. Keep pressing to cycle.</small>`,
+    text: (p) => `Press ${k('C', 'X')(p)} to change the camera.<br><small>Top-down is great for parking. Keep pressing to cycle.</small>`,
     done: (t) => t.camPresses >= 1,
   },
   {
-    text: `${key('SPACE')} is the handbrake. Give it a tap.`,
+    text: (p) => `${k('SPACE', 'RB')(p)} is the handbrake. Give it a tap.`,
     done: (t) => t.handbrake,
   },
   {
-    text: `Now park in the spot with the bouncing ${key('P')}.<br><small>Pull up beside the car in front of it, then reverse in. Stop and hold still to finish. Stuck? Press ${key('I')} to watch the instructor.</small>`,
+    text: (p) => `Now park in the spot with the bouncing ${key('P')}.<br><small>Pull up beside the car in front of it, then reverse in. Stop and hold still to finish. Stuck? Press ${k('I', 'LB')(p)} to watch the instructor.</small>`,
     done: (t, world) => world.player.parked,
   },
 ];
 
 export class Tutorial {
-  constructor(el) {
+  constructor(el, pad = false) {
     this.el = el;
+    this.pad = pad;
     this.step = 0;
     this.forward = 0;
     this.reverse = 0;
@@ -46,6 +49,13 @@ export class Tutorial {
   }
 
   get total() { return STEPS.length; }
+
+  // Switch prompts between keyboard and controller labels.
+  setPad(pad) {
+    if (pad === this.pad) return;
+    this.pad = pad;
+    if (this.flash <= 0) this.render();
+  }
 
   // Returns true on the frame a step is completed.
   update(dt, input, world) {
@@ -79,7 +89,7 @@ export class Tutorial {
     if (this.finished) return;
     this.el.innerHTML = `
       <div class="tut-step">STEP ${this.step + 1}/${STEPS.length}</div>
-      <div class="tut-text">${STEPS[this.step].text}</div>
-      <div class="tut-skip">${key('ENTER')} SKIP TUTORIAL</div>`;
+      <div class="tut-text">${STEPS[this.step].text(this.pad)}</div>
+      <div class="tut-skip">${key(this.pad ? 'A' : 'ENTER')} SKIP TUTORIAL</div>`;
   }
 }

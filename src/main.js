@@ -7,6 +7,7 @@ import { VEHICLES, vehicleById } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
 import { Tutorial } from './tutorial.js';
+import { pollPads } from './gamepad.js';
 import { setLook, cssHex } from './render/looks.js';
 
 const $ = (id) => document.getElementById(id);
@@ -22,8 +23,11 @@ let view;
 const keys = new Set();
 const pressed = new Set();
 const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+let pad = { throttle: 0, steer: 0, handbrake: false };
+let usingPad = false; // last input came from a controller: show its button names
 window.addEventListener('keydown', (e) => {
   audio.unlock();
+  usingPad = false;
   if (GAME_KEYS.includes(e.code)) e.preventDefault();
   if (!e.repeat) pressed.add(e.code);
   keys.add(e.code);
@@ -38,11 +42,21 @@ function readInput(dt) {
   const down = keys.has('KeyS') || keys.has('ArrowDown');
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
   const right = keys.has('KeyD') || keys.has('ArrowRight');
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
   return {
-    throttle: (up ? 1 : 0) - (down ? 1 : 0),
-    steer: (right ? 1 : 0) - (left ? 1 : 0),
-    handbrake: keys.has('Space'),
+    throttle: clamp((up ? 1 : 0) - (down ? 1 : 0) + pad.throttle),
+    steer: clamp((right ? 1 : 0) - (left ? 1 : 0) + pad.steer),
+    handbrake: keys.has('Space') || pad.handbrake,
   };
+}
+
+// Controllers: analog values feed readInput, button presses join the keyboard's.
+function pollController() {
+  const s = game.state;
+  pad = pollPads(s === 'play' || s === 'countdown' ? 'drive' : s === 'paused' ? 'paused' : 'menu');
+  for (const c of pad.codes) pressed.add(c);
+  if (pad.active) { audio.unlock(); usingPad = true; }
+  if (game.tutorial) game.tutorial.setPad(usingPad);
 }
 
 // ---------------- game state ----------------
@@ -357,6 +371,8 @@ function renderHowTo() {
       <div><span class="k">R</span> RESTART &nbsp; <span class="k">ESC</span> PAUSE</div>
       <div><span class="k">ENTER</span> CASH OUT (WRECK MODE)</div>
       <div><span class="k">I</span> LET THE INSTRUCTOR PARK (DRIVING TEST, NO POINTS)</div>
+      <div><span class="k">CONTROLLER</span> RT OR RIGHT STICK GAS, LT BRAKE/REVERSE, LEFT STICK STEER,
+        RB HANDBRAKE, X CAMERA, Y HORN, LB INSTRUCTOR, START PAUSE</div>
       <p style="color:var(--lgray);font-size:9px;line-height:2">
         NO GEARS TO FIDDLE WITH: STOP, THEN HOLD S TO GO BACKWARD. EACH TIME YOU SWITCH
         DIRECTION IT COUNTS AS A MOVE. BEAT THE INSTRUCTOR'S PAR FOR FULL MARKS.<br><br>
@@ -397,7 +413,7 @@ function startGame(mode) {
   game.saidReverse = false;
   game.result = null;
   game.autopilot = null;
-  game.tutorial = tutorial ? new Tutorial($('tutor')) : null;
+  game.tutorial = tutorial ? new Tutorial($('tutor'), usingPad) : null;
   $('tutor').classList.toggle('hidden', !tutorial);
   if (world.playerSpot) {
     const plan = planPark(world, world.playerSpot, vehicle);
@@ -455,7 +471,9 @@ function updateHUD() {
   }
   bl += '</div>';
   $('hud-bl').innerHTML = bl;
-  $('hud-br').innerHTML = `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${game.mode === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}`;
+  $('hud-br').innerHTML = usingPad
+    ? `RT / R-STICK GAS &bull; LT BRAKE<br>L-STICK STEER &bull; RB HANDBRAKE<br>X CAMERA &bull; Y HORN<br>BACK RESTART &bull; START PAUSE${game.mode === 'test' ? '<br>LB INSTRUCTOR DEMO' : ''}`
+    : `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${game.mode === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}`;
 
   const park = $('hud-park');
   if (p.parkTimer > 0 && !p.parked) {
@@ -639,7 +657,7 @@ function renderPause() {
     <div class="window" style="max-width:420px;text-align:center">
       <h2>PAUSED</h2>
       <p style="font-size:10px;line-height:2;color:var(--lgray)">THE INSTRUCTOR SIGHS AUDIBLY.</p>
-      <div class="hint" style="font-size:10px">ESC: RESUME &bull; R: RESTART &bull; Q: QUIT TO MENU</div>
+      <div class="hint" style="font-size:10px">${usingPad ? 'START: RESUME &bull; BACK: RESTART &bull; Y: QUIT TO MENU' : 'ESC: RESUME &bull; R: RESTART &bull; Q: QUIT TO MENU'}</div>
     </div>`);
 }
 
@@ -750,6 +768,7 @@ function frame(now) {
 function step(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  pollController();
   handleKeys();
 
   const w = game.world;

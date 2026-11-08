@@ -39,6 +39,23 @@ Settings → Pages → Build and deployment → Source.
 
 No gear shifting: stop, keep holding S, and the car goes into reverse.
 
+### Controller
+
+Xbox-style controllers work in the browser (tested layout: 8BitDo Ultimate 2.4G
+in X-input mode; a Steam Controller works with Steam running, which presents it
+as an Xbox pad). Press any button once so the browser notices it.
+
+| Button | Driving | Menus |
+| --- | --- | --- |
+| RT / right stick up | Gas (analog) | |
+| LT / right stick down | Brake, then reverse (analog) | |
+| Left stick / D-pad | Steer | Navigate |
+| RB or B | Handbrake | B: back |
+| A | Cash out (Wreck), skip tutorial | Confirm |
+| X / Y | Camera / horn | X: paint (garage), Y: garage (results), quit (pause) |
+| LB | Instructor demo | |
+| Back / Start | Restart / pause | Start: confirm or resume |
+
 ## Modes
 
 - **Tutorial**: a one-minute guided intro to the controls, ending with your first
