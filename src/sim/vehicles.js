@@ -79,13 +79,18 @@ export function driveCar(car, input, dt, grounded = true) {
   const spec = car.spec;
   const b = car.body;
   const c = Math.cos(b.a), s = Math.sin(b.a);
-  let v = b.vx * c + b.vz * s;
+  // Read speed in the heading we last set the velocity in. Tyres carry the
+  // velocity round with the car as it turns; measuring in the new heading
+  // would turn leftover sideways slip into extra forward speed every tick.
+  const va = car.velA ?? b.a;
+  const vc = Math.cos(va), vs = Math.sin(va);
+  let v = b.vx * vc + b.vz * vs;
 
   // Steering wheel turns at a finite rate and self-centres when released.
   const target = input.steer * spec.maxSteer;
   const rate = (input.steer === 0 ? 3.0 : 2.2) * dt;
   car.steer += Math.max(-rate, Math.min(rate, target - car.steer));
-  if (!grounded) { car.speed = v; return; } // no grip in the air
+  if (!grounded) { car.speed = b.vx * c + b.vz * s; car.velA = undefined; return; } // no grip in the air
 
   const brake = 11;
   const t = input.throttle;
@@ -113,7 +118,7 @@ export function driveCar(car, input, dt, grounded = true) {
   const sx = -s, sz = c;
   // Tyres grip hard sideways: blend lateral slip and yaw toward the ideal
   // (no-slip) values. Forward speed is applied directly.
-  const lat = b.vx * sx + b.vz * sz;
+  const lat = -b.vx * vs + b.vz * vc;
   const latDesired = wDesired * ahead;
   const gripRate = input.handbrake ? 2.5 : 30;
   const g = 1 - Math.exp(-gripRate * dt);
@@ -122,6 +127,7 @@ export function driveCar(car, input, dt, grounded = true) {
   b.vz = v * s + latNew * sz;
   b.w += (wDesired - b.w) * g;
   car.speed = v;
+  car.velA = b.a;
 }
 
 function shift(car, gear) {
