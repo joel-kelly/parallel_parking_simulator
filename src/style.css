@@ -131,6 +131,8 @@ html, body {
   max-width: 460px; margin: 10px auto 0; min-height: 3.6em;
   font-size: 9px; line-height: 1.8; color: var(--lgray); text-align: center;
 }
+.slogan { min-height: 1.4em; transition: opacity 0.35s, transform 0.35s; }
+.slogan.out { opacity: 0; transform: translateY(-4px); }
 .tagline.new { color: var(--lgreen); margin-top: -8px; }
 .menu li.sel { color: var(--yellow); background: var(--black); }
 .menu li.sel::before { content: '\25B6'; position: absolute; left: 14px; color: var(--lred); }

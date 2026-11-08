@@ -7,6 +7,7 @@ import { VEHICLES, vehicleById } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
 import { Tutorial } from './tutorial.js';
+import { setLook, cssHex } from './render/looks.js';
 
 const $ = (id) => document.getElementById(id);
 const screen = $('screen');
@@ -89,6 +90,45 @@ function hideScreen() { screen.innerHTML = ''; }
 
 function diffObj() { return DIFFICULTIES.find((d) => d.id === save.difficulty) || DIFFICULTIES[1]; }
 
+// Rotating slogans under the logo, like loading-screen quips.
+const SLOGANS = [
+  'EPISODE ONE: CURB YOUR ENTHUSIASM',
+  'NOW WITH 40% MORE CURB',
+  'OBJECTS IN MIRROR ARE CLOSER THAN THEY APPEAR',
+  'YOUR INSURANCE PROVIDER HAS BEEN NOTIFIED',
+  'TIP: THE BRAKE IS ALSO A PEDAL',
+  'TIP: HONKING DOES NOT MAKE THE SPOT BIGGER',
+  "IT'S NOT A DENT. IT'S CHARACTER.",
+  'REVERSE IS JUST FORWARD WITH TRUST ISSUES',
+  "THE SPOT IS BIGGER THAN IT LOOKS. IT ISN'T.",
+  'NO PEDESTRIANS WERE HARMED. THEY LEFT.',
+  'TIP: THE CURB IS NOT A SUGGESTION',
+  'TIP: CHECK YOUR MIRRORS. ADMIRE YOURSELF.',
+  'TIP: A 47-POINT TURN IS STILL A TURN',
+  'TIP: THE PERSON BEHIND YOU IS JUDGING YOU',
+  'TIP: THAT NOISE WAS PROBABLY FINE',
+  'TIP: SIGNAL. NOBODY ELSE WILL.',
+  'RATED E FOR EVENTUALLY',
+  'LOADING SMUG ONLOOKERS...',
+  'WARNING: CONTAINS TIGHT SPOTS',
+  'BUMPERS: THEY ARE FOR BUMPING',
+  'ESTABLISHED 1991. LICENSE PENDING.',
+  'SHAREWARE! PLEASE REGISTER YOUR BUMPER.',
+  'AS SEEN ON A DRIVING TEST NEAR YOU',
+  'THE METER IS RUNNING. SO IS YOUR NOSE.',
+  'NOW PARKING: ABSOLUTELY NOBODY',
+];
+let sloganIdx = 0;
+setInterval(() => {
+  const el = $('slogan');
+  if (!el) return;
+  let next = sloganIdx;
+  while (next === sloganIdx) next = Math.floor(Math.random() * SLOGANS.length);
+  sloganIdx = next;
+  el.classList.add('out');
+  setTimeout(() => { el.textContent = SLOGANS[sloganIdx]; el.classList.remove('out'); }, 350);
+}, 4500);
+
 function renderMenu() {
   game.state = 'menu';
   game.pendingMode = null;
@@ -97,14 +137,14 @@ function renderMenu() {
   showScreen(`
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
-      <div class="tagline">EPISODE ONE: CURB YOUR ENTHUSIASM</div>
+      <div class="tagline slogan" id="slogan">${SLOGANS[sloganIdx]}</div>
       ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MODES.map((m, i) => `<li data-i="${i}">${m.name}</li>`).join('')}
       </ul>
       <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P CLASSIC COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
     </div>`);
   bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
   highlightMenu();
@@ -179,7 +219,7 @@ function pickDifficulty() {
 }
 
 let garageSel = 0;
-const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+const hex = cssHex;
 const owns = (v) => v.cost === 0 || save.unlocked.includes(v.id);
 
 // A vehicle spec with the player's paint job applied.
@@ -210,7 +250,7 @@ function drawGarage(msg = '') {
           else if (owned) price = v.cost === 0 && !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
           else price = save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`;
           return `<div class="${cls}" data-i="${i}">
-            <div class="name"><span class="swatch" style="background:${hex(ps.color)}"></span>${v.name}</div>
+            <div class="name"><span class="swatch" data-c="${ps.color}" style="background:${hex(ps.color)}"></span>${v.name}</div>
             <div class="blurb">${v.blurb}</div>
             <div>LENGTH ${v.length.toFixed(1)}M</div>
             <div class="price">${price}</div>
@@ -269,7 +309,7 @@ function renderPaint(v) {
   const row = (r, label) => `
     <div class="paint-row" data-row="${r}">
       <div class="paint-label">${label} <span class="paint-name"></span></div>
-      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" style="background:${hex(c)}"></div>`).join('')}</div>
+      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" data-c="${c}" style="background:${hex(c)}"></div>`).join('')}</div>
     </div>`;
   showScreen(`
     <div class="window side" style="max-width:520px">
@@ -591,11 +631,16 @@ function renderPause() {
     </div>`);
 }
 
+// Colour swatches in menus are inline styles, so repaint them when the look changes.
+function recolorSwatches() {
+  screen.querySelectorAll('[data-c]').forEach((el) => { el.style.background = hex(+el.dataset.c); });
+}
+
 // ---------------- per-state key handling ----------------
 function handleKeys() {
   const hit = (c) => pressed.has(c);
   if (hit('KeyM')) { save.muted = !save.muted; audio.setMuted(save.muted); writeSave(save); }
-  if (hit('KeyP')) { save.ega = !save.ega; view.setEga(save.ega); writeSave(save); }
+  if (hit('KeyP')) { save.look = save.look === 'classic' ? 'modern' : 'classic'; setLook(save.look); writeSave(save); recolorSwatches(); }
 
   switch (game.state) {
     case 'menu':
@@ -762,7 +807,7 @@ async function boot() {
     e.preventDefault();
     window.__ppsFail('GRAPHICS CRASHED', 'Your browser reset the graphics. Reload the page to keep playing.');
   });
-  view.setEga(save.ega);
+  setLook(save.look);
   // a scenic wreck-mode street behind the menu
   const vehicle = vehicleById(save.vehicle);
   const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7 });
