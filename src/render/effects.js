@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CURB, SIDEWALK_H } from '../sim/level.js';
 import { EGA, box } from './models.js';
+import { remapColor, remapCss } from './looks.js';
 
 const GRAVITY = -22;
 const MAX_DEBRIS = 450;
@@ -199,7 +200,7 @@ export class Particles {
 
   emit(x, y, z, vx, vy, vz, color, size = 0.3, life = 1, opts = {}) {
     if (this.data.length >= this.max) this.data.shift();
-    this.color.set(color).convertSRGBToLinear();
+    this.color.set(remapColor(color)).convertSRGBToLinear();
     this.data.push({ x, y, z, vx, vy, vz, r: this.color.r, g: this.color.g, b: this.color.b, size, life, age: 0,
       grav: opts.grav ?? -9, grow: opts.grow ?? 0, drag: opts.drag ?? 0, alpha: opts.alpha ?? 1, fade: !!opts.fade });
   }
@@ -282,7 +283,7 @@ export class Popups {
     const d = document.createElement('div');
     d.className = 'popup';
     d.textContent = text;
-    d.style.color = color;
+    d.style.color = remapCss(color);
     d.style.fontSize = `${Math.round(14 * size)}px`;
     this.el.appendChild(d);
     this.items.push({ d, x, y, z, age: 0, life: 1.3 });

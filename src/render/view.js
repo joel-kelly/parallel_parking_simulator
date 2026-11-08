@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RetroPass } from './post.js';
-import { SKY, LIGHTS } from './looks.js';
-import { buildCar, buildProp, buildStreet, buildSpotMarker, EGA, box, mat } from './models.js';
+import { style, skyTexture, onLookChange, getLook } from './looks.js';
+import { buildCar, buildProp, buildStreet, buildSpotMarker, EGA, box, mat, trackMaterial } from './models.js';
 import { Debris, Particles, Popups } from './effects.js';
 import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
 
@@ -26,7 +26,8 @@ export class View {
     this.flash = 0;
     this.camPos = new THREE.Vector3(0, 8, 10);
     this.camLook = new THREE.Vector3();
-    this.ega = true;
+    this.rigs = []; // scenes whose sky, fog and lights follow the look
+    onLookChange(() => this.rigs.forEach(applyRig));
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -45,18 +46,18 @@ export class View {
     if (this.particles) this.particles.material.uniforms.scale.value = this.pxScale;
   }
 
-  setEga(on) { this.ega = on; }
 
   // Builds all meshes for a fresh World.
   load(world) {
     this.world = world;
     const scene = new THREE.Scene();
     this.scene = scene;
-    scene.background = skyTexture();
-    scene.fog = new THREE.Fog(SKY.fog, 90, 220);
-
-    scene.add(new THREE.HemisphereLight(LIGHTS.sky, LIGHTS.ground, LIGHTS.hemi));
-    const sun = new THREE.DirectionalLight(LIGHTS.sun, LIGHTS.sunI);
+    scene.fog = new THREE.Fog(0xffffff, 90, 220);
+    const hemi = new THREE.HemisphereLight();
+    const sun = new THREE.DirectionalLight();
+    scene.add(hemi);
+    this.rigs = this.rigs.filter((r) => r.garage);
+    this.rigs.push(applyRig({ scene, hemi, sun, extra: 0 }));
     sun.position.set(-30, 60, 25);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -84,7 +85,7 @@ export class View {
       // tint the AI a colour the player isn't wearing
       const tint = mat(world.player.spec.color === EGA.lmagenta ? EGA.lcyan : EGA.lmagenta);
       v.body.traverse((o) => {
-        if (o.isMesh && o.material.color && o.material.color.getHex() === world.ai.car.spec.color) o.material = tint;
+        if (o.isMesh && o.material.userData.base === world.ai.car.spec.color) o.material = tint;
       });
     }
 
@@ -256,7 +257,7 @@ export class View {
 
     this.flash = Math.max(0, this.flash - dt * 2.5);
     const u = this.post.material.uniforms;
-    u.ega.value = this.ega ? 1 : 0;
+    u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = this.flash;
     this.post.render(this.scene, this.camera);
   }
@@ -351,9 +352,10 @@ export class View {
   renderShowcase(dt, spec, color, accent, sideLayout) {
     if (!this.show) {
       const scene = new THREE.Scene();
-      scene.background = skyTexture();
-      scene.add(new THREE.HemisphereLight(LIGHTS.sky, LIGHTS.ground, LIGHTS.hemi + 0.1));
-      const sun = new THREE.DirectionalLight(LIGHTS.sun, LIGHTS.sunI);
+      const hemi = new THREE.HemisphereLight();
+      const sun = new THREE.DirectionalLight();
+      scene.add(hemi);
+      this.rigs.push(applyRig({ scene, hemi, sun, extra: 0.1, garage: true }));
       sun.position.set(-8, 14, 10);
       sun.castShadow = true;
       sun.shadow.mapSize.set(1024, 1024);
@@ -401,7 +403,7 @@ export class View {
     else cam.clearViewOffset();
     cam.updateProjectionMatrix();
     const u = this.post.material.uniforms;
-    u.ega.value = this.ega ? 1 : 0;
+    u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = 0;
     this.post.render(S.scene, cam);
   }
@@ -419,7 +421,7 @@ export class View {
     this.camera.lookAt(x + 12, 1.2, 3);
     this.particles.update(dt);
     this.debris.update(dt);
-    this.post.material.uniforms.ega.value = this.ega ? 1 : 0;
+    this.post.material.uniforms.look.value = getLook() === 'classic' ? 0 : 1;
     this.post.material.uniforms.flash.value = 0;
     this.post.render(this.scene, this.camera);
   }
@@ -427,32 +429,22 @@ export class View {
 
 const charCache = new Map();
 function charred(m) {
-  if (!m.color) return m;
-  const key = m.color.getHex();
-  if (!charCache.has(key)) {
-    const c = m.clone();
-    c.color = m.color.clone().multiplyScalar(0.18);
-    charCache.set(key, c);
-  }
-  return charCache.get(key);
+  if (!m.color || m.userData.base === undefined) return m;
+  if (!charCache.has(m)) charCache.set(m, trackMaterial(m.clone(), m.userData.base, 0.18));
+  return charCache.get(m);
 }
 
-function skyTexture() {
-  const c = document.createElement('canvas');
-  c.width = 4; c.height = 256;
-  const g = c.getContext('2d');
-  if (SKY.gradient) {
-    const lg = g.createLinearGradient(0, 0, 0, 256);
-    for (const [t, col] of SKY.gradient) lg.addColorStop(t, col);
-    g.fillStyle = lg; g.fillRect(0, 0, 4, 256);
-  } else {
-    const bands = SKY.bands;
-    bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 256, 4, 256 / bands.length + 1); });
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.magFilter = SKY.gradient ? THREE.LinearFilter : THREE.NearestFilter;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+// Points a scene's sky, fog and lights at the current look.
+function applyRig(r) {
+  const st = style();
+  r.scene.background = skyTexture();
+  if (r.scene.fog) r.scene.fog.color.setHex(st.fog);
+  r.hemi.color.setHex(st.hemiSky);
+  r.hemi.groundColor.setHex(st.hemiGround);
+  r.hemi.intensity = st.hemi + r.extra;
+  r.sun.color.setHex(st.sun);
+  r.sun.intensity = st.sunI;
+  return r;
 }
 
 function addClouds(scene, level) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { remapColor, remapCss, makeRamp } from './looks.js';
+import { remapColor, remapCss, ramp, onLookChange } from './looks.js';
 import { CURB, SIDEWALK, SIDEWALK_H, LANE, BUILDING_DEPTH } from '../sim/level.js';
 
 // The classic 16-colour EGA palette, for that early-90s shareware feel.
@@ -10,21 +10,40 @@ export const EGA = {
   lred: 0xff5555, lmagenta: 0xff55ff, yellow: 0xffff55, white: 0xffffff,
 };
 
-// Three-step toon ramp: chunky, cartoony lighting.
-const ramp = makeRamp();
-
+// Materials are made from authored EGA colours and recoloured when the look changes.
+// userData.base keeps the authored colour; userData.dim darkens it (charred wrecks).
 const matCache = new Map();
+const allMats = new Set();
+export function trackMaterial(m, base, dim = 1) {
+  m.userData.base = base;
+  m.userData.dim = dim;
+  allMats.add(m);
+  paint(m);
+  return m;
+}
+function paint(m) {
+  m.color.setHex(remapColor(m.userData.base)).multiplyScalar(m.userData.dim);
+  if (m.isMeshToonMaterial) m.gradientMap = ramp();
+}
+
 export function mat(color, opts = {}) {
-  color = remapColor(color);
   const key = color + JSON.stringify(opts);
   if (!matCache.has(key)) {
     const m = opts.basic
-      ? new THREE.MeshBasicMaterial({ color, transparent: !!opts.transparent, opacity: opts.opacity ?? 1 })
-      : new THREE.MeshToonMaterial({ color, gradientMap: ramp, transparent: !!opts.transparent, opacity: opts.opacity ?? 1 });
-    matCache.set(key, m);
+      ? new THREE.MeshBasicMaterial({ transparent: !!opts.transparent, opacity: opts.opacity ?? 1 })
+      : new THREE.MeshToonMaterial({ transparent: !!opts.transparent, opacity: opts.opacity ?? 1 });
+    matCache.set(key, trackMaterial(m, color));
   }
   return matCache.get(key);
 }
+
+// Sign textures are redrawn when the look changes.
+const textures = new Set();
+
+onLookChange(() => {
+  for (const m of allMats) paint(m);
+  for (const t of textures) { t.userData.draw(); t.needsUpdate = true; }
+});
 
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 export function box(w, h, d, color, x = 0, y = 0, z = 0, opts) {
@@ -52,21 +71,26 @@ export function textTexture(text, { bg = '#0000aa', fg = '#ffff55', w = 256, h =
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const g = c.getContext('2d');
-  bg = remapCss(bg); fg = remapCss(fg); border = remapCss(border);
-  g.fillStyle = bg; g.fillRect(0, 0, w, h);
-  if (border) { g.strokeStyle = border; g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4); }
-  g.fillStyle = '#000000';
-  let s = size;
-  g.font = `${s}px "Press Start 2P", monospace`;
-  while (g.measureText(text).width > w - 16 && s > 8) { s -= 2; g.font = `${s}px "Press Start 2P", monospace`; }
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(text, w / 2 + 2, h / 2 + 3);
-  g.fillStyle = fg;
-  g.fillText(text, w / 2, h / 2 + 1);
+  const draw = () => {
+    g.fillStyle = remapCss(bg); g.fillRect(0, 0, w, h);
+    if (border) { g.strokeStyle = remapCss(border); g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4); }
+    g.fillStyle = remapCss('#000000');
+    let s = size;
+    g.font = `${s}px "Press Start 2P", monospace`;
+    while (g.measureText(text).width > w - 16 && s > 8) { s -= 2; g.font = `${s}px "Press Start 2P", monospace`; }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, w / 2 + 2, h / 2 + 3);
+    g.fillStyle = remapCss(fg);
+    g.fillText(text, w / 2, h / 2 + 1);
+  };
+  draw();
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   t.colorSpace = THREE.SRGBColorSpace;
+  t.userData.draw = draw;
+  textures.add(t);
+  t.addEventListener('dispose', () => textures.delete(t));
   return t;
 }
 

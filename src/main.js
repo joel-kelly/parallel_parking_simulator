@@ -7,6 +7,7 @@ import { VEHICLES, vehicleById } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
 import { Tutorial } from './tutorial.js';
+import { setLook, cssHex } from './render/looks.js';
 
 const $ = (id) => document.getElementById(id);
 const screen = $('screen');
@@ -104,7 +105,7 @@ function renderMenu() {
       </ul>
       <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P CLASSIC COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
     </div>`);
   bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
   highlightMenu();
@@ -179,7 +180,7 @@ function pickDifficulty() {
 }
 
 let garageSel = 0;
-const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+const hex = cssHex;
 const owns = (v) => v.cost === 0 || save.unlocked.includes(v.id);
 
 // A vehicle spec with the player's paint job applied.
@@ -210,7 +211,7 @@ function drawGarage(msg = '') {
           else if (owned) price = v.cost === 0 && !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
           else price = save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`;
           return `<div class="${cls}" data-i="${i}">
-            <div class="name"><span class="swatch" style="background:${hex(ps.color)}"></span>${v.name}</div>
+            <div class="name"><span class="swatch" data-c="${ps.color}" style="background:${hex(ps.color)}"></span>${v.name}</div>
             <div class="blurb">${v.blurb}</div>
             <div>LENGTH ${v.length.toFixed(1)}M</div>
             <div class="price">${price}</div>
@@ -269,7 +270,7 @@ function renderPaint(v) {
   const row = (r, label) => `
     <div class="paint-row" data-row="${r}">
       <div class="paint-label">${label} <span class="paint-name"></span></div>
-      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" style="background:${hex(c)}"></div>`).join('')}</div>
+      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" data-c="${c}" style="background:${hex(c)}"></div>`).join('')}</div>
     </div>`;
   showScreen(`
     <div class="window side" style="max-width:520px">
@@ -591,11 +592,16 @@ function renderPause() {
     </div>`);
 }
 
+// Colour swatches in menus are inline styles, so repaint them when the look changes.
+function recolorSwatches() {
+  screen.querySelectorAll('[data-c]').forEach((el) => { el.style.background = hex(+el.dataset.c); });
+}
+
 // ---------------- per-state key handling ----------------
 function handleKeys() {
   const hit = (c) => pressed.has(c);
   if (hit('KeyM')) { save.muted = !save.muted; audio.setMuted(save.muted); writeSave(save); }
-  if (hit('KeyP')) { save.ega = !save.ega; view.setEga(save.ega); writeSave(save); }
+  if (hit('KeyP')) { save.look = save.look === 'classic' ? 'modern' : 'classic'; setLook(save.look); writeSave(save); recolorSwatches(); }
 
   switch (game.state) {
     case 'menu':
@@ -762,7 +768,7 @@ async function boot() {
     e.preventDefault();
     window.__ppsFail('GRAPHICS CRASHED', 'Your browser reset the graphics. Reload the page to keep playing.');
   });
-  view.setEga(save.ega);
+  setLook(save.look);
   // a scenic wreck-mode street behind the menu
   const vehicle = vehicleById(save.vehicle);
   const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7 });
