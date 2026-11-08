@@ -414,7 +414,7 @@ function startGame(mode) {
   if (mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.start)}`, 5);
   if (mode === 'race') say(`<b>${opts.aiProfile.name}:</b> "${opts.aiProfile.taunt}"`, 4);
   if (tutorial) say('<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.', 4);
-  if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Trees. Shops. Whole buildings (keep ramming). Press ENTER to file your insurance claim.', 6);
+  if (mode === 'wreck') say('<b>WRECK-REATION:</b> Everything is breakable. Trees. Shops. Whole buildings (keep ramming). There is a ramp at the far end; land on your wheels or it is game over. Press ENTER to file your insurance claim.', 7);
 }
 
 function updateHUD() {
@@ -483,10 +483,20 @@ function handleEvents(events) {
       if (game.mode === 'test') say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.curb)}`);
     } else if (e.type === 'parked') {
       audio.jingle(e.car.isPlayer);
+    } else if (e.type === 'land' && e.car.isPlayer) {
+      audio.crash(Math.min(6, 1 + e.impact * 0.5));
+    } else if (e.type === 'flip' && e.car.isPlayer) {
+      audio.crash(8);
+      audio.boom();
     }
   }
   if (game.state !== 'play') return;
   // end conditions
+  if (game.mode === 'wreck' && w.player.flipped) {
+    say(`<b>WRECK-REATION:</b> ${pickLine(['Cars go wheels-down. Generally.', 'That is not how cars go.', 'Your car is now a turtle. Game over, turtle.'])}`, 4);
+    finishWreck();
+    game.endT = 2.8; // let the tumble play out
+  }
   if (game.mode === 'test' && w.player.parked) finishTest();
   if (game.mode === 'race') {
     if (w.player.parked) finishRace(true);
@@ -547,17 +557,19 @@ function finishWreck() {
   awardPoints(points);
   writeSave(save);
   const wrecked = w.parked.filter((c) => c.wrecked).length;
-  const quip = w.destruction > 60000 ? 'The town has been renamed in your honour. It is now called "The Crater".'
+  const flipped = w.player.flipped;
+  const quip = flipped ? pickLine(['You rolled it. The claim was filed from the roof, upside down.', 'Rollover. The adjuster has asked which side is meant to be up.', 'Wheels up, claim in. Your insurer is laughing too hard to deny it.'])
+    : w.destruction > 60000 ? 'The town has been renamed in your honour. It is now called "The Crater".'
     : w.destruction > 20000 ? 'Your insurer has entered witness protection.'
       : w.destruction > 5000 ? 'A respectable amount of chaos. The mayor is concerned.'
         : 'That is barely a fender bender. Are you even trying?';
   endWith(() => renderResults({
-    title: 'INSURANCE CLAIM', grade: `$${Math.round(w.destruction / 1000)}K`, gradeTitle: 'TOTAL DAMAGES',
+    title: flipped ? 'ROLLED OVER!' : 'INSURANCE CLAIM', grade: `$${Math.round(w.destruction / 1000)}K`, gradeTitle: 'TOTAL DAMAGES',
     quip,
     items: [
       { label: 'THINGS SMASHED', detail: String(w.player.propsBroken) },
       { label: 'CARS WRECKED', detail: String(wrecked) },
-      { label: 'YOUR CAR', detail: w.player.damage > 200 ? 'A SMOKING RUIN' : w.player.damage > 60 ? 'DENTED' : 'SUSPICIOUSLY FINE' },
+      { label: 'YOUR CAR', detail: flipped ? 'UPSIDE DOWN' : w.player.damage > 200 ? 'A SMOKING RUIN' : w.player.damage > 60 ? 'DENTED' : 'SUSPICIOUSLY FINE' },
     ],
     total: '', points,
   }));

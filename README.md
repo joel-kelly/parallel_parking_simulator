@@ -53,7 +53,9 @@ No gear shifting: stop, keep holding S, and the car goes into reverse.
 - **Wreck-reation**: everything breaks. Hydrants geyser, parking meters spill
   coins, trees and lamp posts topple, parked cars eventually explode. Ram a shop
   to smash its front; keep ramming and the whole building collapses into rubble
-  you can drive through. Press Enter to file the insurance claim.
+  you can drive through. At the far end is a ramp: hit it straight and you get
+  big air, catch the side or come down wrong and you flip, which ends the run
+  (your claim is filed from the roof). Press Enter to file the insurance claim.
 
 **Difficulty** sets how much spare room the spot has beyond your car's length:
 Easy +3.0m, Normal +2.0m, Hard +1.45m, Insane +1.15m. Hard and Insane need
@@ -71,6 +73,8 @@ palette. Progress and paint jobs are saved in the browser.
   - `vehicles.js`: vehicle specs and the bicycle-model driving.
   - `level.js`: street layout, parked cars, props, difficulty.
   - `world.js`: steps the sim, collisions, dings, curb hops, smashing, park detection.
+  - `air.js`: the vertical part: suspension springs, ramp and curb heights,
+    jumps, pitch/roll and flip detection, layered on the flat 2D sim.
   - `ai.js`: parking planner + driver (used by the race AI and the instructor demo).
   - `grading.js`: scores and instructor quips.
 - `src/render/`: Three.js view, blocky models, debris/particles, and the

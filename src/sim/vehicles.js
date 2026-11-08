@@ -75,7 +75,7 @@ export function minTurnRadius(spec) {
  *
  * input: { throttle: -1..1, steer: -1..1, handbrake: bool }
  */
-export function driveCar(car, input, dt) {
+export function driveCar(car, input, dt, grounded = true) {
   const spec = car.spec;
   const b = car.body;
   const c = Math.cos(b.a), s = Math.sin(b.a);
@@ -85,6 +85,7 @@ export function driveCar(car, input, dt) {
   const target = input.steer * spec.maxSteer;
   const rate = (input.steer === 0 ? 3.0 : 2.2) * dt;
   car.steer += Math.max(-rate, Math.min(rate, target - car.steer));
+  if (!grounded) { car.speed = v; return; } // no grip in the air
 
   const brake = 11;
   const t = input.throttle;

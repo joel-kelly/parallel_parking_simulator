@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { remapColor, remapCss, ramp, onLookChange } from './looks.js';
 import { CURB, SIDEWALK, SIDEWALK_H, LANE, BUILDING_DEPTH } from '../sim/level.js';
+import { rampProfile, rampTop } from '../sim/air.js';
 
 // The classic 16-colour EGA palette, for that early-90s shareware feel.
 export const EGA = {
@@ -425,6 +426,53 @@ export function buildBuilding(b) {
   hole.visible = false;
   group.add(hole);
   return { group, block, facade, extras, hole, info: b, w, h, depth, cx, z };
+}
+
+// Wreck mode's jump: a curved wooden kicker with chevrons and a warning banner.
+export function buildRamp(ramp) {
+  const g = new THREE.Group();
+  const width = ramp.z1 - ramp.z0;
+  const H = rampTop(ramp);
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  const steps = 16;
+  for (let i = 1; i <= steps; i++) {
+    const u = ramp.len * i / steps;
+    shape.lineTo(u, rampProfile(ramp, u));
+  }
+  shape.lineTo(ramp.len, 0);
+  shape.lineTo(0, 0);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, curveSegments: 1 });
+  const wedge = new THREE.Mesh(geo, mat(EGA.brown));
+  wedge.castShadow = true;
+  wedge.receiveShadow = true;
+  wedge.position.set(ramp.x0, 0, ramp.z0);
+  g.add(wedge);
+  const cz = (ramp.z0 + ramp.z1) / 2;
+  // plank lines and chevron stripes laid on the surface
+  for (let i = 1; i < 12; i++) {
+    const u = ramp.len * i / 12;
+    const du = 0.05;
+    const slope = Math.atan2(rampProfile(ramp, Math.min(ramp.len, u + du)) - rampProfile(ramp, Math.max(0, u - du)), 2 * du);
+    const stripe = i % 3 === 0;
+    const m = box(stripe ? 0.3 : 0.05, 0.03, width, stripe ? EGA.yellow : EGA.black, ramp.x0 + u, rampProfile(ramp, u) + 0.02, cz, { basic: !stripe });
+    m.rotation.z = slope;
+    m.castShadow = false;
+    g.add(m);
+  }
+  // hazard trim along the lip and the sides
+  for (let k = 0; k < 6; k++) {
+    g.add(box(0.12, 0.3, width / 6, k % 2 ? EGA.black : EGA.yellow, ramp.x0 + ramp.len + 0.06, H - 0.15, ramp.z0 + (k + 0.5) * width / 6));
+  }
+  // a banner over the run-up
+  const bx = ramp.x0 - 6;
+  for (const z of [ramp.z0 - 0.6, ramp.z1 + 0.6]) g.add(box(0.2, 5, 0.2, EGA.white, bx, 2.5, z));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(width + 1.2, 1.1),
+    new THREE.MeshBasicMaterial({ map: textTexture('RAMP OF POOR DECISIONS', { bg: '#aa0000', fg: '#ffff55', w: 384 }), side: THREE.DoubleSide }));
+  sign.position.set(bx, 4.4, cz);
+  sign.rotation.y = -Math.PI / 2;
+  g.add(sign);
+  return g;
 }
 
 export function buildSpotMarker(spot, color = EGA.yellow) {
