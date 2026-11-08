@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { remapColor, remapCss, makeRamp } from './looks.js';
 import { CURB, SIDEWALK, SIDEWALK_H, LANE, BUILDING_DEPTH } from '../sim/level.js';
 
 // The classic 16-colour EGA palette, for that early-90s shareware feel.
@@ -10,17 +11,11 @@ export const EGA = {
 };
 
 // Three-step toon ramp: chunky, cartoony lighting.
-const ramp = (() => {
-  const data = new Uint8Array([90, 90, 90, 255, 175, 175, 175, 255, 255, 255, 255, 255]);
-  const t = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
-  t.minFilter = THREE.NearestFilter;
-  t.magFilter = THREE.NearestFilter;
-  t.needsUpdate = true;
-  return t;
-})();
+const ramp = makeRamp();
 
 const matCache = new Map();
 export function mat(color, opts = {}) {
+  color = remapColor(color);
   const key = color + JSON.stringify(opts);
   if (!matCache.has(key)) {
     const m = opts.basic
@@ -57,6 +52,7 @@ export function textTexture(text, { bg = '#0000aa', fg = '#ffff55', w = 256, h =
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const g = c.getContext('2d');
+  bg = remapCss(bg); fg = remapCss(fg); border = remapCss(border);
   g.fillStyle = bg; g.fillRect(0, 0, w, h);
   if (border) { g.strokeStyle = border; g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4); }
   g.fillStyle = '#000000';

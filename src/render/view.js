@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RetroPass } from './post.js';
+import { SKY, LIGHTS } from './looks.js';
 import { buildCar, buildProp, buildStreet, buildSpotMarker, EGA, box, mat } from './models.js';
 import { Debris, Particles, Popups } from './effects.js';
 import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
@@ -52,10 +53,10 @@ export class View {
     const scene = new THREE.Scene();
     this.scene = scene;
     scene.background = skyTexture();
-    scene.fog = new THREE.Fog(0x55ffff, 90, 220);
+    scene.fog = new THREE.Fog(SKY.fog, 90, 220);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    scene.add(new THREE.HemisphereLight(LIGHTS.sky, LIGHTS.ground, LIGHTS.hemi));
+    const sun = new THREE.DirectionalLight(LIGHTS.sun, LIGHTS.sunI);
     sun.position.set(-30, 60, 25);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -351,8 +352,8 @@ export class View {
     if (!this.show) {
       const scene = new THREE.Scene();
       scene.background = skyTexture();
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.7));
-      const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+      scene.add(new THREE.HemisphereLight(LIGHTS.sky, LIGHTS.ground, LIGHTS.hemi + 0.1));
+      const sun = new THREE.DirectionalLight(LIGHTS.sun, LIGHTS.sunI);
       sun.position.set(-8, 14, 10);
       sun.castShadow = true;
       sun.shadow.mapSize.set(1024, 1024);
@@ -438,12 +439,18 @@ function charred(m) {
 
 function skyTexture() {
   const c = document.createElement('canvas');
-  c.width = 4; c.height = 64;
+  c.width = 4; c.height = 256;
   const g = c.getContext('2d');
-  const bands = ['#0000aa', '#0000aa', '#5555ff', '#5555ff', '#55ffff', '#55ffff', '#ffffff'];
-  bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 64, 4, 64 / bands.length + 1); });
+  if (SKY.gradient) {
+    const lg = g.createLinearGradient(0, 0, 0, 256);
+    for (const [t, col] of SKY.gradient) lg.addColorStop(t, col);
+    g.fillStyle = lg; g.fillRect(0, 0, 4, 256);
+  } else {
+    const bands = SKY.bands;
+    bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 256, 4, 256 / bands.length + 1); });
+  }
   const t = new THREE.CanvasTexture(c);
-  t.magFilter = THREE.NearestFilter;
+  t.magFilter = SKY.gradient ? THREE.LinearFilter : THREE.NearestFilter;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }

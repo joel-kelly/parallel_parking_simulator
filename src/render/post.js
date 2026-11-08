@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { LOOK_ID, PALETTE_A } from './looks.js';
 
 // Renders the scene at low resolution, then draws it to the screen with
 // black depth outlines and (optionally) ordered dithering down to the
@@ -21,6 +22,8 @@ export class RetroPass {
         far: { value: 1000 },
         ega: { value: 1 },
         flash: { value: 0 },
+        look: { value: LOOK_ID },
+        pal: { value: PALETTE_A.map((c) => new THREE.Color().setHex(c, THREE.LinearSRGBColorSpace)) },
       },
       vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -30,7 +33,8 @@ export class RetroPass {
         uniform sampler2D tColor;
         uniform sampler2D tDepth;
         uniform vec2 res;
-        uniform float near, far, ega, flash;
+        uniform float near, far, ega, flash, look;
+        uniform vec3 pal[34];
         varying vec2 vUv;
         float lin(vec2 uv) {
           float d = texture2D(tDepth, uv).x;
@@ -58,12 +62,35 @@ export class RetroPass {
           float dd = lin(vUv - vec2(0.0, px.y));
           float edge = max(max(dl, dr), max(du, dd)) - d;
           float thr = 0.06 * d + 0.15;
-          if (edge > thr && d < far * 0.6) col *= 0.08;
-          if (ega > 0.5) {
-            vec3 c = col;
-            float b = bayer(gl_FragCoord.xy) - 0.5;
-            c = floor(c * 3.0 + 0.5 + b * 0.9) / 3.0;
-            col = clamp(c, 0.0, 1.0);
+          bool outline = edge > thr && d < far * 0.6;
+          if (outline) col = look > 2.5 ? mix(col, vec3(0.09, 0.07, 0.17), 0.88) : col * 0.08;
+          float b = bayer(gl_FragCoord.xy) - 0.5;
+          if (ega > 0.5 && look < 0.5) {
+            // classic: snap each channel to 00/55/AA/FF
+            col = clamp(floor(col * 3.0 + 0.5 + b * 0.9) / 3.0, 0.0, 1.0);
+          } else if (ega > 0.5 && look < 1.5) {
+            // A: nearest colour in the hand-picked palette, light dither
+            vec3 c = col + b * 0.10;
+            vec3 best = pal[0]; float bd = 1e9;
+            for (int k = 0; k < 34; k++) {
+              vec3 p = pal[k];
+              vec3 dv = (c - p) * vec3(0.30, 0.59, 0.11);
+              float dd2 = dot(c - p, c - p) + 2.0 * dot(dv, dv);
+              if (dd2 < bd) { bd = dd2; best = p; }
+            }
+            col = best;
+          } else if (ega > 0.5 && look < 2.5) {
+            // B: finer 6-level grid so the hue-shifted shades survive
+            col = clamp(floor(col * 5.0 + 0.5 + b * 0.6) / 5.0, 0.0, 1.0);
+          } else if (look > 2.5) {
+            // C: gentle colour grade and vignette
+            float l = dot(col, vec3(0.299, 0.587, 0.114));
+            col = mix(vec3(l), col, 1.12);
+            col = (col - 0.5) * 1.06 + 0.5;
+            col *= vec3(1.02, 1.0, 0.97);
+            vec2 v = vUv - 0.5;
+            col *= 1.0 - dot(v, v) * 0.45;
+            col = clamp(col, 0.0, 1.0);
           }
           col = mix(col, vec3(1.0), flash);
           gl_FragColor = vec4(col, 1.0);
