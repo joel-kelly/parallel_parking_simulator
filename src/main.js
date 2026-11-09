@@ -33,6 +33,16 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+// Brief notice when a controller connects, naming what the browser sees.
+window.addEventListener('gamepadconnected', (e) => {
+  const gp = e.gamepad;
+  const el = document.createElement('div');
+  el.className = 'pad-toast';
+  el.textContent = `CONTROLLER CONNECTED: ${gp.id}${gp.mapping === 'standard' ? '' : ' (NON-STANDARD LAYOUT, BEST GUESS)'}`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+});
 window.addEventListener('blur', () => keys.clear());
 window.addEventListener('pointerdown', () => audio.unlock());
 
