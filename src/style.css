@@ -46,7 +46,7 @@ html, body {
 
 #hud-center {
   position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%);
-  font-size: 64px; color: var(--yellow);
+  font-size: clamp(30px, 6.5vw, 64px); color: var(--yellow);
   text-shadow: 6px 6px 0 var(--red), 10px 10px 0 var(--black);
   text-align: center; white-space: nowrap;
 }
@@ -206,6 +206,91 @@ h2 { font-size: 18px; color: var(--yellow); text-shadow: 3px 3px 0 var(--black);
   #hud-br { display: none; }
   #hud-center { font-size: 36px; }
   .window { padding: 18px 16px; }
+}
+
+/* ---------- v2: timers, combos, toasts, career, trophies ---------- */
+#hud-top {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  text-align: center; pointer-events: none;
+}
+#hud-top .timer {
+  display: inline-block; font-size: 26px; color: var(--white); padding: 8px 18px;
+  background: var(--black); border: 4px solid var(--lgray); box-shadow: 4px 4px 0 var(--dgray);
+}
+#hud-top .timer.low { color: var(--lred); border-color: var(--lred); animation: pulse 0.5s infinite; }
+#hud-top .timer .lbl { display: block; font-size: 8px; color: var(--lgray); margin-bottom: 4px; }
+#hud-top .mods { margin-top: 8px; font-size: 8px; color: var(--lmagenta); text-shadow: 2px 2px 0 var(--black); }
+#hud-top .find { margin-top: 8px; font-size: 11px; color: var(--yellow); text-shadow: 2px 2px 0 var(--black); }
+#hud.tutorial #hud-top { display: none; }
+@keyframes pulse { 50% { transform: scale(1.06); } }
+
+#combo {
+  position: absolute; top: 24%; right: 6%; text-align: right; pointer-events: none;
+  color: var(--yellow); text-shadow: 4px 4px 0 var(--red), 7px 7px 0 var(--black);
+}
+#combo .big { font-size: 44px; }
+#combo .sub { font-size: 10px; color: var(--white); text-shadow: 2px 2px 0 var(--black); }
+#combo .bar { width: 140px; height: 8px; background: var(--black); border: 2px solid var(--white); margin: 6px 0 0 auto; }
+#combo .bar div { height: 100%; background: var(--yellow); }
+
+.meter { width: 120px; height: 10px; background: var(--black); border: 2px solid var(--white); margin-top: 4px; }
+.meter div { height: 100%; background: var(--lcyan); }
+.meter.on div { background: var(--yellow); }
+.strikes { color: var(--lred); letter-spacing: 3px; }
+.strikes .off { color: var(--dgray); }
+
+#toasts { position: fixed; right: 16px; bottom: 90px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; z-index: 5; }
+.toast {
+  background: var(--black); border: 4px solid var(--yellow); color: var(--white);
+  padding: 10px 14px; font-size: 9px; line-height: 1.8; min-width: 240px; max-width: 320px;
+  box-shadow: 4px 4px 0 var(--dgray); animation: toast-in 0.35s steps(5) both;
+}
+.toast .t { color: var(--yellow); font-size: 10px; }
+.toast.out { animation: toast-out 0.3s steps(4) both; }
+@keyframes toast-in { from { transform: translateX(120%); } to { transform: translateX(0); } }
+@keyframes toast-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(120%); opacity: 0; } }
+
+.levels { list-style: none; padding: 0; margin: 0; max-height: calc(100vh - 290px); overflow-y: auto; }
+.levels li { display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px 36px; font-size: 11px; cursor: pointer; position: relative; }
+.levels li .n { color: var(--lgray); width: 28px; font-size: 9px; }
+.levels li .nm { flex: 1; }
+.levels li .stars { color: var(--yellow); letter-spacing: 2px; font-size: 12px; }
+.levels li .stars .off { color: var(--dgray); }
+.levels li.sel { background: var(--black); color: var(--yellow); }
+.levels li.sel::before { content: '\25B6'; position: absolute; left: 12px; color: var(--lred); }
+.levels li.locked { color: var(--dgray); }
+.levels li.locked .nm::after { content: ' \1F512'; font-size: 9px; }
+.level-desc { min-height: 5.4em; font-size: 9px; line-height: 1.9; color: var(--lgray); text-align: center; margin-top: 12px; }
+.level-desc .mods { color: var(--lmagenta); }
+.level-desc .car { color: var(--lcyan); }
+
+.trophies { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: calc(100vh - 230px); overflow-y: auto; }
+.trophy { border: 3px solid var(--dgray); background: var(--black); padding: 10px; font-size: 8px; line-height: 1.8; }
+.trophy .nm { color: var(--yellow); font-size: 10px; }
+.trophy.got { border-color: var(--yellow); }
+.trophy.got .nm::before { content: '\2605 '; color: var(--yellow); }
+.trophy:not(.got) { opacity: 0.7; }
+.trophy:not(.got) .nm { color: var(--lgray); }
+.trophy:not(.got) .nm::before { content: '- '; color: var(--dgray); }
+
+.results .stars-big { font-size: 40px; color: var(--yellow); text-shadow: 4px 4px 0 var(--black); letter-spacing: 6px; margin-bottom: 8px; }
+.results .stars-big .off { color: var(--dgray); }
+.breakdown .line .good { color: var(--lgreen); }
+.hud-intro {
+  position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); text-align: center; white-space: nowrap;
+  background: var(--blue); border: 6px solid var(--yellow); padding: 18px 28px; box-shadow: 8px 8px 0 var(--black);
+}
+.hud-intro .h { font-size: 22px; color: var(--yellow); text-shadow: 3px 3px 0 var(--black); }
+.hud-intro .s { font-size: 11px; color: var(--white); margin-top: 12px; line-height: 2; text-shadow: 2px 2px 0 var(--black); }
+.hud-intro .m { font-size: 9px; color: var(--lmagenta); margin-top: 6px; text-shadow: 2px 2px 0 var(--black); }
+.menu li .tag { display: inline-block; margin-left: 10px; font-size: 8px; color: var(--lgreen); vertical-align: middle; }
+.daily-info { font-size: 8px; color: var(--lgray); text-align: center; margin-top: 10px; line-height: 2; }
+.daily-info .k { color: var(--yellow); }
+
+@media (max-width: 640px) {
+  #combo .big { font-size: 28px; }
+  #hud-top .timer { font-size: 18px; padding: 6px 10px; }
+  .trophies { max-height: calc(100vh - 200px); }
 }
 
 .pad-toast {

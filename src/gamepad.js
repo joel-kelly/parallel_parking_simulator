@@ -32,11 +32,11 @@ const clamp = (v) => Math.max(-1, Math.min(1, v));
 /**
  * Read every connected standard pad once per frame.
  * mode: 'drive' | 'menu' | 'paused'
- * Returns { throttle, steer, handbrake, codes, active } where codes are key
+ * Returns { throttle, steer, handbrake, nitro, codes, active } where codes are key
  * codes pressed this frame and active is true if the pad was touched at all.
  */
 export function pollPads(mode) {
-  const out = { throttle: 0, steer: 0, handbrake: false, codes: [], active: false };
+  const out = { throttle: 0, steer: 0, handbrake: false, nitro: false, codes: [], active: false };
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (const gp of pads) {
     if (!gp || !gp.connected) continue;
@@ -55,6 +55,7 @@ export function pollPads(mode) {
     out.throttle += btn(RT).value - btn(LT).value - ry;
     out.steer += lx + dpadX;
     if (btn(RB).pressed || btn(B).pressed) out.handbrake = true;
+    if (btn(LB).pressed) out.nitro = true; // nitro in Wreck mode (LB is also the instructor demo elsewhere)
 
     // "Down" flags for edge detection. In menus the left stick acts as a d-pad.
     const down = gp.buttons.map((b) => b.pressed);

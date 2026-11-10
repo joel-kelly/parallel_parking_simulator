@@ -1,14 +1,17 @@
 import * as THREE from 'three';
 import { RetroPass } from './post.js';
 import { style, skyTexture, onLookChange, getLook } from './looks.js';
-import { buildCar, buildProp, buildStreet, buildSpotMarker, buildRamp, EGA, box, mat, trackMaterial } from './models.js';
-import { Debris, Particles, Popups } from './effects.js';
+import { buildCar, buildProp, buildStreet, buildSpotMarker, buildRamp, buildPed, nightSkyTexture, greySkyTexture, EGA, box, mat, trackMaterial } from './models.js';
+import { Debris, Particles, Popups, Skids } from './effects.js';
 import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
-
-const BUILDING_FACE = CURB + SIDEWALK;
+import { spotBounds } from '../sim/spot.js';
 import { centreAhead } from '../sim/vehicles.js';
 
+const BUILDING_FACE = CURB + SIDEWALK;
 const PIXEL_HEIGHT = 300; // vertical resolution of the chunky render
+
+const SCARE_WORDS = ['HEY!', 'WATCH IT!', 'MY LATTE!', 'I HAVE A LAWYER!', 'NOT TODAY!', 'MY HIP!', 'RUDE!'];
+const HONK_WORDS = ['HONK!', 'MOVE IT!', 'HOOOONK', 'BEEEEP', 'COME ON!'];
 
 export class View {
   constructor(canvas, popupLayer) {
@@ -22,8 +25,10 @@ export class View {
     this.scene = new THREE.Scene();
     this.popups = new Popups(popupLayer, this.camera);
     this.camMode = 0;
+    this.camLocked = false;
     this.shake = 0;
     this.flash = 0;
+    this.tint = new THREE.Vector3(1, 1, 1);
     this.camPos = new THREE.Vector3(0, 8, 10);
     this.camLook = new THREE.Vector3();
     this.rigs = []; // scenes whose sky, fog and lights follow the look
@@ -47,29 +52,63 @@ export class View {
   }
 
 
+  // A full-screen flash in a colour (white by default).
+  doFlash(strength, color = 0xffffff) {
+    const c = new THREE.Color(color);
+    this.tint.set(c.r, c.g, c.b);
+    this.flash = Math.max(this.flash, strength);
+  }
+
   // Builds all meshes for a fresh World.
   load(world) {
     this.world = world;
+    const mods = world.mods;
+    this.night = mods.has('night');
+    this.foggy = mods.has('fog');
+    this.rain = mods.has('rain');
+    this.ice = mods.has('ice');
+    this.camLocked = mods.has('blind');
+    if (this.camLocked) this.camMode = 0;
     const scene = new THREE.Scene();
     this.scene = scene;
-    scene.fog = new THREE.Fog(0xffffff, 90, 220);
-    const hemi = new THREE.HemisphereLight();
-    const sun = new THREE.DirectionalLight();
-    scene.add(hemi);
+
+    // sky, light and weather (the plain street follows the colour look; weather has its own)
     this.rigs = this.rigs.filter((r) => r.garage);
-    this.rigs.push(applyRig({ scene, hemi, sun, extra: 0 }));
+    let hemi, sun;
+    if (this.night) {
+      scene.background = nightSkyTexture();
+      scene.fog = new THREE.Fog(0x000011, 30, 140);
+      hemi = new THREE.HemisphereLight(0x5555ff, 0x000000, 0.22);
+      sun = new THREE.DirectionalLight(0x5555ff, 0.25);
+    } else if (this.foggy) {
+      scene.background = greySkyTexture();
+      scene.fog = new THREE.Fog(0xaaaaaa, 4, 34);
+      hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.3);
+      sun = new THREE.DirectionalLight(0xffffff, 0.8);
+    } else if (this.rain) {
+      scene.background = greySkyTexture();
+      scene.fog = new THREE.Fog(0x555555, 50, 160);
+      hemi = new THREE.HemisphereLight(0xaaaaaa, 0x555555, 1.2);
+      sun = new THREE.DirectionalLight(0xaaaaaa, 1.2);
+    } else {
+      scene.fog = new THREE.Fog(0xffffff, 90, 220);
+      hemi = new THREE.HemisphereLight();
+      sun = new THREE.DirectionalLight();
+      this.rigs.push(applyRig({ scene, hemi, sun, extra: 0 }));
+    }
+    scene.add(hemi);
+    this.sun = sun;
     sun.position.set(-30, 60, 25);
-    sun.castShadow = true;
+    sun.castShadow = !this.night;
     sun.shadow.mapSize.set(1024, 1024);
     const sc = sun.shadow.camera;
     sc.left = -40; sc.right = 40; sc.top = 40; sc.bottom = -40; sc.near = 1; sc.far = 160;
     scene.add(sun, sun.target);
-    this.sun = sun;
 
-    const street = buildStreet(world.level);
+    const street = buildStreet(world.level, this.ice ? 'ice' : this.rain ? 'wet' : 'dry');
     scene.add(street.group);
     this.buildingViews = street.buildings;
-    addClouds(scene, world.level);
+    if (!this.night && !this.foggy) addClouds(scene, world.level, this.rain ? EGA.dgray : EGA.white);
 
     if (world.level.ramp) scene.add(buildRamp(world.level.ramp));
 
@@ -85,12 +124,13 @@ export class View {
       v.car = c;
       v.roll = 0;
       v.dist = 0;
+      v.skidDist = 0;
+      if (this.night) addHeadlights(v, c.spec, c.isPlayer ? 1 : 0.5);
       return v;
     });
     if (world.ai) {
-      // tint the AI car so you can tell it apart
-      const v = this.carViews[1];
       // tint the AI a colour the player isn't wearing
+      const v = this.carViews.find((cv) => cv.car.isAI);
       const tint = mat(world.player.spec.color === EGA.lmagenta ? EGA.lcyan : EGA.lmagenta);
       v.body.traverse((o) => {
         if (o.isMesh && o.material.userData.base === world.ai.car.spec.color) o.material = tint;
@@ -117,19 +157,41 @@ export class View {
     });
     this.propByBody = new Map(this.propViews.map((v) => [v.prop, v]));
 
-    this.markers = world.level.spots.map((s) => {
+    // At night the lamp posts nearest the action actually light things up.
+    if (this.night) {
+      const focus = world.playerSpot ? world.playerSpot.cx : world.level.playerStart.x;
+      const lamps = world.props.filter((p) => p.type === 'lamp').sort((a, b) => Math.abs(a.body.x - focus) - Math.abs(b.body.x - focus)).slice(0, 4);
+      for (const l of lamps) {
+        const pt = new THREE.PointLight(0xffff55, 120, 16, 1.6);
+        pt.position.set(l.body.x, 4.0, l.body.z);
+        scene.add(pt);
+      }
+    }
+
+    this.pedViews = world.peds.list.map((p) => {
+      const v = buildPed(p);
+      scene.add(v.root);
+      v.ped = p;
+      return v;
+    });
+
+    this.markers = mods.has('hidden') ? [] : world.level.spots.map((s) => {
       const m = buildSpotMarker(s, s.owner === 'ai' ? EGA.lred : EGA.yellow);
       scene.add(m);
+      m.userData.spot = s;
       return m;
     });
 
     this.debris = new Debris(scene);
     this.particles = new Particles(scene);
     this.particles.material.uniforms.scale.value = this.pxScale;
+    this.skids = new Skids(scene);
     this.popups.clear();
     this.geysers = [];
     this.fires = [];
     this.time = 0;
+    this.quakeT = 0;
+    this.thunderT = 4 + Math.random() * 6;
     this.snapCamera();
   }
 
@@ -137,9 +199,14 @@ export class View {
     this.updateCamera(1, true);
   }
 
-  cycleCamera() { this.camMode = (this.camMode + 1) % 3; }
+  // Returns false when the camera is locked by a modifier.
+  cycleCamera() {
+    if (this.camLocked) return false;
+    this.camMode = (this.camMode + 1) % 3;
+    return true;
+  }
 
-  // Converts sim events into effects. Returns nothing; audio is handled elsewhere.
+  // Converts sim events into effects. Audio is handled elsewhere.
   handle(e) {
     const P = this.particles;
     if (e.type === 'break') {
@@ -158,8 +225,10 @@ export class View {
       const name = e.prop.def.name;
       if (e.prop.type === 'hydrant') this.geysers.push({ x: e.prop.body.x, z: e.prop.body.z, t: 25 });
       if (e.prop.type === 'meter') P.coins(e.x, 1, e.z, 14);
+      if (e.prop.type === 'portaloo') P.water(e.x, 1, e.z), this.debris.burst(e.x, 1, e.z, [EGA.lblue, EGA.blue, EGA.white], 14, 5);
       if (e.prop.type === 'fruit') this.debris.burst(e.x, 1, e.z, [EGA.lred, EGA.yellow, EGA.lgreen, 0xff8800], 20, 6, base.clone().normalize());
-      if (e.by && e.by.isPlayer) this.popups.add(`${name}! +$${e.prop.def.value}`, e.x, 2, e.z, '#ff55ff');
+      if (e.prop.type === 'statue') { this.doFlash(0.5); this.shake = 1.2; }
+      if (e.by && e.by.isPlayer) this.popups.add(`${name}! +$${e.value.toLocaleString()}${e.mult > 1 ? ` (x${e.mult})` : ''}`, e.x, 2, e.z, '#ff55ff', e.mult > 1 ? 1.2 : 1);
       this.shake = Math.max(this.shake, Math.min(0.5, e.impact * 0.04));
     } else if (e.type === 'ding') {
       if (e.impact > 0.6) P.sparks(e.x, 0.6, e.z, Math.round(4 + e.impact * 3), 2 + e.impact);
@@ -183,8 +252,8 @@ export class View {
       for (let i = 0; i < 40; i++) P.fire(e.x, 0.6 + Math.random(), e.z);
       for (let i = 0; i < 20; i++) P.smoke(e.x, 1.5, e.z, true);
       this.fires.push({ x: e.x, z: e.z, t: 12, parked: e.parked });
-      this.popups.add('KABOOM! +$5000', e.x, 2.5, e.z, '#ff5555', 1.6);
-      this.flash = 0.6;
+      this.popups.add(`KABOOM! +$${e.value.toLocaleString()}`, e.x, 2.5, e.z, '#ff5555', 1.6);
+      this.doFlash(0.6, 0xffff55);
       this.shake = 1.0;
     } else if (e.type === 'facade') {
       const v = this.buildingViews[this.world.buildings.indexOf(e.building)];
@@ -192,7 +261,7 @@ export class View {
       this.debris.explode(v.facade, out, 1 + Math.min(1.5, e.impact / 8));
       v.hole.visible = true;
       this.debris.burst(e.x, 1.2, e.z, [EGA.lcyan, EGA.white], 24, 4 + e.impact * 0.5, new THREE.Vector3(-e.nx, 0.3, -e.nz));
-      this.popups.add(`${v.info.name}: CLOSED! +$3000`, e.x, 3, e.z, '#55ffff', 1.4);
+      this.popups.add(`${v.info.name}: CLOSED! +$${e.value.toLocaleString()}`, e.x, 3, e.z, '#55ffff', 1.4);
       this.shake = Math.max(this.shake, 0.6);
     } else if (e.type === 'collapse') {
       const v = this.buildingViews[this.world.buildings.indexOf(e.building)];
@@ -200,7 +269,7 @@ export class View {
       this.scene.remove(v.group);
       this.debris.collapse(v, v.info.color, this.particles);
       this.popups.add(`DEMOLISHED! +$${e.value.toLocaleString()}`, v.cx, v.h * 0.6, v.z - v.info.dir * 5, '#ff55ff', 2.2);
-      this.flash = 0.4;
+      this.doFlash(0.4);
       this.shake = 1.4;
     } else if (e.type === 'smash') {
       const dir = new THREE.Vector3(-e.nx, 0.2, -e.nz);
@@ -226,10 +295,24 @@ export class View {
       const b = e.car.body;
       P.confetti(b.x, 2, b.z, e.car.isPlayer ? 120 : 40);
       this.popups.add(e.car.isPlayer ? 'PARKED!' : 'THEY PARKED!', b.x, 3, b.z, e.car.isPlayer ? '#55ff55' : '#ff55ff', 2);
+    } else if (e.type === 'honk') {
+      this.popups.add(HONK_WORDS[Math.floor(Math.random() * HONK_WORDS.length)], e.x, 2.2, e.z, '#ff5555', 1.2);
+    } else if (e.type === 'scare') {
+      this.popups.add(SCARE_WORDS[Math.floor(Math.random() * SCARE_WORDS.length)], e.x, 2.4, e.z, '#ffffff', 1.1);
+      P.sparks(e.x, 1, e.z, 4, 2);
+    } else if (e.type === 'quake') {
+      this.quakeT = e.duration;
+      const b = this.world.player.body;
+      this.popups.add('EARTHQUAKE!', b.x, 3.5, b.z, '#ffff55', 1.8);
+    } else if (e.type === 'combo') {
+      const colour = e.mult >= 6 ? '#ff55ff' : e.mult >= 3 ? '#ff5555' : '#ffff55';
+      this.popups.add(`x${e.mult} COMBO!`, e.x, 3, e.z, colour, 1.3 + Math.min(1.5, e.combo * 0.08));
+    } else if (e.type === 'creep') {
+      this.popups.add('beep... beep...', e.x, 2, e.z, '#aaaaaa', 0.8);
     }
   }
 
-  update(dt, input) {
+  update(dt) {
     this.time += dt;
     const w = this.world;
     for (const v of this.carViews) this.syncCar(v, dt);
@@ -239,6 +322,7 @@ export class View {
       v.root.rotation.y = -b.a;
       if (v.parked.damage > 60 && !v.parked.wrecked && Math.random() < dt * 4) this.particles.smoke(b.x, 1.2, b.z);
     }
+    for (const v of this.pedViews) this.syncPed(v, dt);
     for (const g of this.geysers) {
       g.t -= dt;
       for (let i = 0; i < 4; i++) this.particles.water(g.x, 0.5, g.z);
@@ -252,17 +336,34 @@ export class View {
     }
     this.fires = this.fires.filter((f) => f.t > 0);
 
-    // player smoke when badly damaged
+    // player smoke when badly damaged; nitro flames when boosting
     const p = w.player;
     if (p.damage > 80 && Math.random() < dt * 8) {
       const fx = p.body.x + Math.cos(p.body.a) * p.spec.length * 0.4, fz = p.body.z + Math.sin(p.body.a) * p.spec.length * 0.4;
       this.particles.smoke(fx, p.spec.height * 0.8, fz, p.damage > 200);
     }
+    if (p.nitroOn) {
+      const bx = p.body.x - Math.cos(p.body.a) * p.spec.length * 0.52, bz = p.body.z - Math.sin(p.body.a) * p.spec.length * 0.52;
+      for (let i = 0; i < 3; i++) this.particles.fire(bx, 0.5, bz);
+      if (Math.random() < 0.5) this.particles.smoke(bx, 0.6, bz, true);
+    }
+
+    // weather
+    if (this.rain || this.ice) this.weather(dt);
 
     for (const m of this.markers) {
       const s = m.userData.sign;
       s.position.y = 3.6 + Math.abs(Math.sin(this.time * 3)) * 0.6;
       s.rotation.y = this.time * 1.5;
+      if (w.mods.has('shrink') && m.userData.spot.owner === 'player') {
+        // the painted bay follows the shrinking gap
+        const sp = m.userData.spot;
+        const b = spotBounds(w, sp);
+        const len = b.front - b.rear, cx = sp.cx + sp.dir * (b.front + b.rear) / 2;
+        m.userData.lines.scale.x = Math.max(0.1, len / sp.length);
+        m.userData.lines.position.x = cx;
+        s.position.x = cx;
+      }
     }
 
     this.debris.kick(w.cars);
@@ -279,11 +380,31 @@ export class View {
     const u = this.post.material.uniforms;
     u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = this.flash;
+    u.tint.value.copy(this.tint);
     this.post.render(this.scene, this.camera);
   }
 
+  weather(dt) {
+    const c = this.camera.position;
+    const n = this.rain ? 14 : 5;
+    for (let i = 0; i < n; i++) {
+      const x = c.x + (Math.random() - 0.5) * 50, z = c.z + (Math.random() - 0.5) * 50, y = c.y + 6 + Math.random() * 10;
+      if (this.rain) this.particles.emit(x, y, z, 0.6, -22, 0.3, Math.random() < 0.5 ? EGA.lcyan : EGA.lblue, 0.1, 1.0, { grav: 0, alpha: 0.7 });
+      else this.particles.emit(x, y, z, (Math.random() - 0.5) * 1.2, -2.5, (Math.random() - 0.5) * 1.2, EGA.white, 0.22, 5, { grav: 0, drag: 0.2 });
+    }
+    if (this.rain) {
+      this.thunderT -= dt;
+      if (this.thunderT <= 0) { this.thunderT = 8 + Math.random() * 14; this.doFlash(0.7, 0xffffff); this.thunder = true; }
+    }
+  }
+
+  // The main loop polls this to play the thunder with the lightning.
+  takeThunder() { const t = !!this.thunder; this.thunder = false; return t; }
+
   syncCar(v, dt) {
     const c = v.car, b = c.body;
+    v.holder.visible = !c.off;
+    if (c.off) return;
     v.holder.position.set(b.x, c.y, b.z);
     v.holder.rotation.set(-c.roll, -b.a, c.pitch);
     // body lean from acceleration and steering, for cartoon wobble
@@ -294,6 +415,37 @@ export class View {
     for (const w of v.wheels) {
       if (w.front) w.pivot.rotation.y = -c.steer;
       w.wheel.rotation.z = -v.dist / v.radius;
+    }
+    // tyre marks when sliding or when the handbrake is dragging at speed
+    const sliding = !c.airborne && (Math.abs(c.slip) > 1.2 || (c.lastInput.handbrake && Math.abs(c.speed) > 2.5));
+    if (sliding && (c.isPlayer || c.isAI)) {
+      v.skidDist += Math.abs(c.speed) * dt;
+      if (v.skidDist > 0.35) {
+        v.skidDist = 0;
+        const ca = Math.cos(b.a), sa = Math.sin(b.a);
+        const rx = -centreAhead(c.spec), hw = c.spec.width / 2 - 0.15;
+        for (const side of [hw, -hw]) {
+          this.skids.mark(b.x + ca * rx - sa * side, b.z + sa * rx + ca * side, b.a, 0.45);
+        }
+        if (Math.random() < 0.6) this.particles.smoke(b.x + ca * rx, 0.2, b.z + sa * rx);
+      }
+    } else v.skidDist = 0.35;
+  }
+
+  syncPed(v, dt) {
+    const p = v.ped;
+    v.root.position.set(p.x, p.y + (Math.abs(p.z) > CURB ? SIDEWALK_H : 0), p.z);
+    if (p.state === 'dive') {
+      v.root.rotation.set(0, -p.diveA, 0);
+      v.body.rotation.set(0, 0, -1.3);
+      v.hips[0].rotation.z = v.hips[1].rotation.z = 0.6;
+    } else {
+      const facing = p.state === 'walk' ? (p.facing > 0 ? 0 : Math.PI) : (p.side > 0 ? Math.PI / 2 : -Math.PI / 2) * (p.state === 'wait' ? 0.3 : 1);
+      v.root.rotation.set(0, -facing, 0);
+      v.body.rotation.set(0, 0, p.state === 'wait' ? 0.25 : 0); // hunched over the phone
+      const swing = p.state === 'wait' ? 0 : Math.sin(p.phase) * (p.speed > 2 ? 0.9 : 0.5);
+      v.hips[0].rotation.z = swing;
+      v.hips[1].rotation.z = -swing;
     }
   }
 
@@ -322,6 +474,7 @@ export class View {
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);
     if (this.camMode !== 2) this.avoidBuildings(this.camLook, this.camera.position);
+    if (this.quakeT > 0) { this.quakeT -= dt; this.shake = Math.max(this.shake, 0.7); }
     if (this.shake > 0) {
       this.camera.position.x += (Math.random() - 0.5) * this.shake;
       this.camera.position.y += (Math.random() - 0.5) * this.shake;
@@ -441,6 +594,19 @@ export class View {
   }
 }
 
+function addHeadlights(v, spec, strength) {
+  const L = spec.length, W = spec.width;
+  for (const side of [1, -1]) {
+    const s = new THREE.SpotLight(0xffffaa, 260 * strength, 42, 0.42, 0.45, 1.4);
+    s.position.set(L / 2, 0.7, side * W * 0.32);
+    s.target.position.set(L / 2 + 16, -0.6, side * W * 0.5);
+    s.castShadow = false;
+    v.root.add(s, s.target);
+    // a glowing lamp, so the lights read even when they're not lighting anything
+    v.body.add(box(0.1, 0.22, 0.36, EGA.white, L / 2 + 0.05, 0.7, side * W * 0.32, { basic: true }));
+  }
+}
+
 function pickFlipWord() {
   const w = ['ROLLED IT!', 'TURTLED!', 'WRONG WAY UP!', 'SKY IS DOWN!'];
   return w[Math.floor(Math.random() * w.length)];
@@ -466,12 +632,12 @@ function applyRig(r) {
   return r;
 }
 
-function addClouds(scene, level) {
+function addClouds(scene, level, color) {
   for (let i = 0; i < 18; i++) {
     const g = new THREE.Group();
     const n = 3 + Math.floor(Math.random() * 3);
     for (let k = 0; k < n; k++) {
-      g.add(box(4 + Math.random() * 5, 2 + Math.random() * 1.5, 3 + Math.random() * 3, EGA.white, k * 3 - n * 1.5, Math.random(), Math.random() * 2, { basic: true }));
+      g.add(box(4 + Math.random() * 5, 2 + Math.random() * 1.5, 3 + Math.random() * 3, color, k * 3 - n * 1.5, Math.random(), Math.random() * 2, { basic: true }));
     }
     g.position.set(level.xMin + Math.random() * (level.xMax - level.xMin), 35 + Math.random() * 20, (Math.random() < 0.5 ? -1 : 1) * (40 + Math.random() * 60));
     g.traverse((o) => { o.castShadow = false; });

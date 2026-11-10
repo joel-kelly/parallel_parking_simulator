@@ -251,7 +251,7 @@ export class AIDriver {
   }
 }
 
-function speedCtl(v, vt) {
+export function speedCtl(v, vt) {
   if (vt === 0) {
     if (v > 0.15) return -1;
     if (v < -0.15) return 1;
@@ -269,4 +269,4 @@ function speedCtl(v, vt) {
   return 0;
 }
 
-const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
