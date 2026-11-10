@@ -10,6 +10,8 @@ import { Tutorial } from './tutorial.js';
 import { MODS, RANDOM_POOL, modNames } from './sim/mods.js';
 import { CAREER, careerUnlocked, careerStars, starsFor, FIRST_CLEAR_BONUS, STAR_BONUS } from './sim/career.js';
 import { TROPHIES, TROPHY_POINTS, checkTrophies } from './sim/achievements.js';
+import { pollPads } from './gamepad.js';
+import { setLook, cssHex } from './render/looks.js';
 
 const $ = (id) => document.getElementById(id);
 const screen = $('screen');
@@ -27,13 +29,26 @@ const SHIFT_STRIKES = 3;
 const keys = new Set();
 const pressed = new Map(); // code -> presses since the last frame
 const GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+let pad = { throttle: 0, steer: 0, handbrake: false };
+let usingPad = false; // last input came from a controller: show its button names
 window.addEventListener('keydown', (e) => {
   audio.unlock();
+  usingPad = false;
   if (GAME_KEYS.includes(e.code)) e.preventDefault();
   if (!e.repeat) pressed.set(e.code, (pressed.get(e.code) || 0) + 1);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+// Brief notice when a controller connects, naming what the browser sees.
+window.addEventListener('gamepadconnected', (e) => {
+  const gp = e.gamepad;
+  const el = document.createElement('div');
+  el.className = 'pad-toast';
+  el.textContent = `CONTROLLER CONNECTED: ${gp.id}${gp.mapping === 'standard' ? '' : ' (NON-STANDARD LAYOUT, BEST GUESS)'}`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+});
 window.addEventListener('blur', () => keys.clear());
 window.addEventListener('pointerdown', () => audio.unlock());
 
@@ -43,12 +58,22 @@ function readInput(dt) {
   const down = keys.has('KeyS') || keys.has('ArrowDown');
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
   const right = keys.has('KeyD') || keys.has('ArrowRight');
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
   return {
-    throttle: (up ? 1 : 0) - (down ? 1 : 0),
-    steer: (right ? 1 : 0) - (left ? 1 : 0),
-    handbrake: keys.has('Space'),
-    nitro: keys.has('ShiftLeft') || keys.has('ShiftRight'),
+    throttle: clamp((up ? 1 : 0) - (down ? 1 : 0) + pad.throttle),
+    steer: clamp((right ? 1 : 0) - (left ? 1 : 0) + pad.steer),
+    handbrake: keys.has('Space') || pad.handbrake,
+    nitro: keys.has('ShiftLeft') || keys.has('ShiftRight') || !!pad.nitro,
   };
+}
+
+// Controllers: analog values feed readInput, button presses join the keyboard's.
+function pollController() {
+  const s = game.state;
+  pad = pollPads(s === 'play' || s === 'countdown' ? 'drive' : s === 'paused' ? 'paused' : 'menu');
+  for (const c of pad.codes) pressed.set(c, (pressed.get(c) || 0) + 1);
+  if (pad.active) { audio.unlock(); usingPad = true; }
+  if (game.tutorial) game.tutorial.setPad(usingPad);
 }
 
 // ---------------- game state ----------------
@@ -124,6 +149,45 @@ function diffObj() { return DIFFICULTIES.find((d) => d.id === save.difficulty) |
 const stars = (n, max = 3) => Array.from({ length: max }, (_, i) => `<span class="${i < n ? '' : 'off'}">&#9733;</span>`).join('');
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+// Rotating slogans under the logo, like loading-screen quips.
+const SLOGANS = [
+  'EPISODE TWO: CURB YOUR ENTHUSIASM HARDER',
+  'NOW WITH 40% MORE CURB',
+  'OBJECTS IN MIRROR ARE CLOSER THAN THEY APPEAR',
+  'YOUR INSURANCE PROVIDER HAS BEEN NOTIFIED',
+  'TIP: THE BRAKE IS ALSO A PEDAL',
+  'TIP: HONKING DOES NOT MAKE THE SPOT BIGGER',
+  "IT'S NOT A DENT. IT'S CHARACTER.",
+  'REVERSE IS JUST FORWARD WITH TRUST ISSUES',
+  "THE SPOT IS BIGGER THAN IT LOOKS. IT ISN'T.",
+  'NO PEDESTRIANS WERE HARMED. THEY LEFT.',
+  'TIP: THE CURB IS NOT A SUGGESTION',
+  'TIP: CHECK YOUR MIRRORS. ADMIRE YOURSELF.',
+  'TIP: A 47-POINT TURN IS STILL A TURN',
+  'TIP: THE PERSON BEHIND YOU IS JUDGING YOU',
+  'TIP: THAT NOISE WAS PROBABLY FINE',
+  'TIP: SIGNAL. NOBODY ELSE WILL.',
+  'RATED E FOR EVENTUALLY',
+  'LOADING SMUG ONLOOKERS...',
+  'WARNING: CONTAINS TIGHT SPOTS',
+  'BUMPERS: THEY ARE FOR BUMPING',
+  'ESTABLISHED 1991. LICENSE PENDING.',
+  'SHAREWARE! PLEASE REGISTER YOUR BUMPER.',
+  'AS SEEN ON A DRIVING TEST NEAR YOU',
+  'THE METER IS RUNNING. SO IS YOUR NOSE.',
+  'NOW PARKING: ABSOLUTELY NOBODY',
+];
+let sloganIdx = 0;
+setInterval(() => {
+  const el = $('slogan');
+  if (!el) return;
+  let next = sloganIdx;
+  while (next === sloganIdx) next = Math.floor(Math.random() * SLOGANS.length);
+  sloganIdx = next;
+  el.classList.add('out');
+  setTimeout(() => { el.textContent = SLOGANS[sloganIdx]; el.classList.remove('out'); }, 350);
+}, 4500);
+
 function renderMenu() {
   game.state = 'menu';
   game.pendingRun = null;
@@ -140,14 +204,14 @@ function renderMenu() {
   showScreen(`
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
-      <div class="tagline">EPISODE TWO: CURB YOUR ENTHUSIASM HARDER</div>
+      <div class="tagline slogan" id="slogan">${SLOGANS[sloganIdx]}</div>
       ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MENU.map((m, i) => `<li data-i="${i}">${m.name}${tag(m)}</li>`).join('')}
       </ul>
       <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P RETRO COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P CLASSIC COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
     </div>`);
   bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
   highlightMenu();
@@ -337,7 +401,7 @@ function dailyConfig() {
 
 // ---- garage ----
 let garageSel = 0;
-const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+const hex = cssHex;
 const owns = (v) => v.cost === 0 || save.unlocked.includes(v.id);
 
 // A vehicle spec with the player's paint job applied.
@@ -368,7 +432,7 @@ function drawGarage(msg = '') {
           else if (owned) price = v.cost === 0 && !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
           else price = save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`;
           return `<div class="${cls}" data-i="${i}">
-            <div class="name"><span class="swatch" style="background:${hex(ps.color)}"></span>${v.name}</div>
+            <div class="name"><span class="swatch" data-c="${ps.color}" style="background:${hex(ps.color)}"></span>${v.name}</div>
             <div class="blurb">${v.blurb}</div>
             <div>LENGTH ${v.length.toFixed(1)}M${v.extraRoom ? ' (GETS A BIGGER SPOT)' : ''}</div>
             <div class="price">${price}</div>
@@ -428,7 +492,7 @@ function renderPaint(v) {
   const row = (r, label) => `
     <div class="paint-row" data-row="${r}">
       <div class="paint-label">${label} <span class="paint-name"></span></div>
-      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" style="background:${hex(c)}"></div>`).join('')}</div>
+      <div class="swatches">${PALETTE.map(([c, n], i) => `<div class="sw" data-row="${r}" data-i="${i}" title="${n}" data-c="${c}" style="background:${hex(c)}"></div>`).join('')}</div>
     </div>`;
   showScreen(`
     <div class="window side" style="max-width:520px">
@@ -477,6 +541,8 @@ function renderHowTo() {
       <div><span class="k">R</span> RESTART &nbsp; <span class="k">ESC</span> PAUSE</div>
       <div><span class="k">ENTER</span> CASH OUT EARLY (WRECK MODE)</div>
       <div><span class="k">I</span> LET THE INSTRUCTOR PARK (DRIVING TEST, NO POINTS)</div>
+      <div><span class="k">CONTROLLER</span> RT OR RIGHT STICK GAS, LT BRAKE/REVERSE, LEFT STICK STEER,
+        RB HANDBRAKE, X CAMERA, Y HORN, LB INSTRUCTOR, START PAUSE</div>
       <p style="color:var(--lgray);font-size:9px;line-height:2">
         NO GEARS TO FIDDLE WITH: STOP, THEN HOLD S TO GO BACKWARD. EACH TIME YOU SWITCH
         DIRECTION IT COUNTS AS A MOVE. BEAT THE INSTRUCTOR'S PAR FOR FULL MARKS.<br><br>
@@ -540,7 +606,7 @@ function startRun(cfg) {
   game.saidReverse = false;
   game.result = null;
   game.autopilot = null;
-  game.tutorial = tutorial ? new Tutorial($('tutor')) : null;
+  game.tutorial = tutorial ? new Tutorial($('tutor'), usingPad) : null;
   $('tutor').classList.toggle('hidden', !tutorial);
   view.load(world);
   hideScreen();
@@ -575,7 +641,7 @@ function startRun(cfg) {
   }
   if (simMode === 'race') open(`<b>${run.aiProfile.name}:</b> "${run.aiProfile.taunt}"`, 4);
   if (tutorial) say('<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.', 4);
-  if (simMode === 'wreck') say('<b>WRECK-REATION:</b> Two minutes until the cops arrive. Smash things quickly for combos. Hold SHIFT for nitro. ENTER cashes out early.', 6);
+  if (simMode === 'wreck') say('<b>WRECK-REATION:</b> Two minutes until the cops arrive. Smash things fast for combos, hold SHIFT for nitro, and mind the ramp at the far end: land on your wheels or it is game over. ENTER cashes out early.', 7);
 }
 
 // ---- valet shift ----
@@ -702,7 +768,9 @@ function updateHUD() {
   if (run.simMode === 'wreck') bl += `<div style="font-size:8px">NITRO (SHIFT)</div><div class="meter ${p.nitroOn ? 'on' : ''}"><div style="width:${p.nitro / NITRO_MAX * 100}%"></div></div>`;
   bl += '</div>';
   $('hud-bl').innerHTML = bl;
-  $('hud-br').innerHTML = `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${run.kind === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>SHIFT NITRO &bull; ENTER CASH OUT' : ''}`;
+  $('hud-br').innerHTML = usingPad
+    ? `RT / R-STICK GAS &bull; LT BRAKE<br>L-STICK STEER &bull; RB HANDBRAKE<br>X CAMERA &bull; Y HORN<br>BACK RESTART &bull; START PAUSE${run.kind === 'test' ? '<br>LB INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>LB NITRO &bull; A CASH OUT' : ''}`
+    : `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${run.kind === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>SHIFT NITRO &bull; ENTER CASH OUT' : ''}`;
 
   const park = $('hud-park');
   if (p.parkTimer > 0 && !p.parked) {
@@ -749,11 +817,20 @@ function handleEvents(events) {
       if (test && w.shrunk < 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.creep)}`, 3);
     } else if (e.type === 'combo') {
       audio.tone(600 + e.combo * 60, 0.08, 'square', 0.07); audio.tone(900 + e.combo * 60, 0.12, 'square', 0.07, 0.08);
+    } else if (e.type === 'land' && e.car.isPlayer) {
+      audio.crash(Math.min(6, 1 + e.impact * 0.5));
+    } else if (e.type === 'flip' && e.car.isPlayer) {
+      audio.crash(8);
+      audio.boom();
     }
   }
   if (view.takeThunder()) audio.thunder();
   if (game.state !== 'play') return;
   // end conditions
+  if (run.simMode === 'wreck' && w.player.flipped) {
+    say(`<b>WRECK-REATION:</b> ${pickLine(['Cars go wheels-down. Generally.', 'That is not how cars go.', 'Your car is now a turtle. Game over, turtle.'])}`, 4);
+    finishWreck(false, true);
+  }
   if (run.simMode === 'test' && run.kind !== 'tutorial' && w.player.parked) finishTest();
   if (run.simMode === 'race') {
     if (w.player.parked) finishRace(true);
@@ -913,13 +990,14 @@ function finishRace(won, forfeit = false) {
   });
 }
 
-function finishWreck(copsArrived = false) {
+function finishWreck(copsArrived = false, flipped = false) {
   const w = game.world;
   const points = Math.min(600, Math.round(w.destruction / 150));
   awardPoints(points);
   writeSave(save);
   const wrecked = w.parked.filter((c) => c.wrecked).length;
-  const quip = w.destruction > 60000 ? 'The town has been renamed in your honour. It is now called "The Crater".'
+  const quip = flipped ? pickLine(['You rolled it. The claim was filed from the roof, upside down.', 'Rollover. The adjuster has asked which side is meant to be up.', 'Wheels up, claim in. Your insurer is laughing too hard to deny it.'])
+    : w.destruction > 60000 ? 'The town has been renamed in your honour. It is now called "The Crater".'
     : w.destruction > 20000 ? 'Your insurer has entered witness protection.'
       : w.destruction > 5000 ? 'A respectable amount of chaos. The mayor is concerned.'
         : 'That is barely a fender bender. Are you even trying?';
@@ -928,19 +1006,19 @@ function finishWreck(copsArrived = false) {
   endWith(() => {
     $('hud-center').innerHTML = '';
     renderResults({
-      title: copsArrived ? 'BUSTED! INSURANCE CLAIM' : 'INSURANCE CLAIM', grade: `$${Math.round(w.destruction / 1000)}K`, gradeTitle: 'TOTAL DAMAGES',
+      title: flipped ? 'ROLLED OVER!' : copsArrived ? 'BUSTED! INSURANCE CLAIM' : 'INSURANCE CLAIM', grade: `$${Math.round(w.destruction / 1000)}K`, gradeTitle: 'TOTAL DAMAGES',
       quip,
       items: [
         { label: 'THINGS SMASHED', detail: String(w.player.propsBroken) },
         { label: 'CARS WRECKED', detail: String(wrecked) },
         { label: 'BEST COMBO', detail: `${w.comboBest} smash${w.comboBest === 1 ? '' : 'es'}` },
         { label: 'TOP SPEED', detail: `${game.run.topKmh} km/h` },
-        { label: 'YOUR CAR', detail: w.player.damage > 200 ? 'A SMOKING RUIN' : w.player.damage > 60 ? 'DENTED' : 'SUSPICIOUSLY FINE' },
+        { label: 'YOUR CAR', detail: flipped ? 'UPSIDE DOWN' : w.player.damage > 200 ? 'A SMOKING RUIN' : w.player.damage > 60 ? 'DENTED' : 'SUSPICIOUSLY FINE' },
       ],
       total: '', points, next: () => startRun(sameRunConfig()), back: () => renderMenu(),
     });
     awardTrophies(res);
-  }, copsArrived ? 3 : 1.6);
+  }, copsArrived ? 3 : flipped ? 2.8 : 1.6); // let the tumble play out
 }
 
 // The clock ran out.
@@ -1046,7 +1124,7 @@ function renderPause() {
     <div class="window" style="max-width:420px;text-align:center">
       <h2>PAUSED</h2>
       <p style="font-size:10px;line-height:2;color:var(--lgray)">THE INSTRUCTOR SIGHS AUDIBLY.</p>
-      <div class="hint" style="font-size:10px">ESC: RESUME &bull; R: RESTART &bull; Q: QUIT</div>
+      <div class="hint" style="font-size:10px">${usingPad ? 'START: RESUME &bull; BACK: RESTART &bull; Y: QUIT' : 'ESC: RESUME &bull; R: RESTART &bull; Q: QUIT'}</div>
     </div>`);
 }
 
@@ -1055,13 +1133,18 @@ function quitRun() {
   if (game.run && game.run.career) renderCareer(''); else renderMenu();
 }
 
+// Colour swatches in menus are inline styles, so repaint them when the look changes.
+function recolorSwatches() {
+  screen.querySelectorAll('[data-c]').forEach((el) => { el.style.background = hex(+el.dataset.c); });
+}
+
 // ---------------- per-state key handling ----------------
 function handleKeys() {
   const hit = (c) => pressed.has(c);
   const times = (c) => pressed.get(c) || 0;
   const nav = (list, sel, fwd, back) => (sel + list.length * 4 + times(fwd[0]) + times(fwd[1]) - times(back[0]) - times(back[1])) % list.length;
   if (hit('KeyM')) { save.muted = !save.muted; audio.setMuted(save.muted); writeSave(save); }
-  if (hit('KeyP')) { save.ega = !save.ega; view.setEga(save.ega); writeSave(save); }
+  if (hit('KeyP')) { save.look = save.look === 'classic' ? 'modern' : 'classic'; setLook(save.look); writeSave(save); recolorSwatches(); }
 
   switch (game.state) {
     case 'menu':
@@ -1175,6 +1258,7 @@ function frame(now) {
 function step(now) {
   const rawDt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  pollController();
   handleKeys();
 
   const w = game.world;
@@ -1266,7 +1350,7 @@ async function boot() {
     e.preventDefault();
     window.__ppsFail('GRAPHICS CRASHED', 'Your browser reset the graphics. Reload the page to keep playing.');
   });
-  view.setEga(save.ega);
+  setLook(save.look);
   const combo = document.createElement('div');
   combo.id = 'combo';
   combo.className = 'hidden';

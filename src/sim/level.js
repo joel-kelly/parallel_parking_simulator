@@ -19,28 +19,36 @@ export const DIFFICULTIES = [
   { id: 'insane', name: 'INSANE', margin: 1.15, mult: 2.5, blurb: 'Physics has filed a complaint.' },
 ];
 
+// Wreck mode jump. Profile is a curve up to `theta` radians, then straight to the lip.
+export const RAMP = { len: 6, z0: -3, z1: 3, theta: 0.45, R: 8 };
+
 export const PROPS = {
-  meter: { hl: 0.13, hw: 0.13, breakSpeed: 1.2, value: 200, name: 'PARKING METER' },
-  hydrant: { hl: 0.22, hw: 0.22, breakSpeed: 2.2, value: 800, name: 'FIRE HYDRANT' },
-  mailbox: { hl: 0.3, hw: 0.28, breakSpeed: 1.8, value: 350, name: 'MAILBOX' },
-  trash: { hl: 0.3, hw: 0.3, breakSpeed: 1.2, value: 150, name: 'TRASH CAN' },
-  lamp: { hl: 0.16, hw: 0.16, breakSpeed: 2.8, value: 1500, name: 'LAMP POST', topple: true },
-  bench: { hl: 0.9, hw: 0.3, breakSpeed: 2.0, value: 400, name: 'BENCH' },
-  newsbox: { hl: 0.25, hw: 0.25, breakSpeed: 1.2, value: 120, name: 'NEWSPAPER BOX' },
-  tree: { hl: 0.25, hw: 0.25, breakSpeed: 3.0, value: 2000, name: 'TREE (A WHOLE TREE)', topple: true },
-  cone: { hl: 0.2, hw: 0.2, breakSpeed: 0.2, value: 25, name: 'TRAFFIC CONE' },
-  crate: { hl: 0.5, hw: 0.5, breakSpeed: 0.8, value: 60, name: 'CRATE' },
-  sawhorse: { hl: 0.2, hw: 1.0, breakSpeed: 0.8, value: 100, name: 'BARRIER' },
-  fruit: { hl: 1.25, hw: 0.6, breakSpeed: 1.5, value: 900, name: 'FRUIT STAND' },
-  booth: { hl: 0.5, hw: 0.5, breakSpeed: 3.0, value: 1200, name: 'PHONE BOOTH' },
-  portaloo: { hl: 0.6, hw: 0.6, breakSpeed: 1.6, value: 700, name: 'PORTABLE TOILET (OCCUPIED)' },
-  statue: { hl: 0.7, hw: 0.7, breakSpeed: 3.5, value: 9000, name: 'STATUE OF THE MAYOR' },
+  meter: { hl: 0.13, hw: 0.13, h: 1.3, breakSpeed: 1.2, value: 200, name: 'PARKING METER' },
+  hydrant: { hl: 0.22, hw: 0.22, h: 0.8, breakSpeed: 2.2, value: 800, name: 'FIRE HYDRANT' },
+  mailbox: { hl: 0.3, hw: 0.28, h: 1.2, breakSpeed: 1.8, value: 350, name: 'MAILBOX' },
+  trash: { hl: 0.3, hw: 0.3, h: 1.0, breakSpeed: 1.2, value: 150, name: 'TRASH CAN' },
+  lamp: { hl: 0.16, hw: 0.16, h: 6, breakSpeed: 2.8, value: 1500, name: 'LAMP POST', topple: true },
+  bench: { hl: 0.9, hw: 0.3, h: 0.9, breakSpeed: 2.0, value: 400, name: 'BENCH' },
+  newsbox: { hl: 0.25, hw: 0.25, h: 1.1, breakSpeed: 1.2, value: 120, name: 'NEWSPAPER BOX' },
+  tree: { hl: 0.25, hw: 0.25, h: 7, breakSpeed: 3.0, value: 2000, name: 'TREE (A WHOLE TREE)', topple: true },
+  cone: { hl: 0.2, hw: 0.2, h: 0.7, breakSpeed: 0.2, value: 25, name: 'TRAFFIC CONE' },
+  crate: { hl: 0.5, hw: 0.5, h: 1.0, breakSpeed: 0.8, value: 60, name: 'CRATE' },
+  sawhorse: { hl: 0.2, hw: 1.0, h: 1.0, breakSpeed: 0.8, value: 100, name: 'BARRIER' },
+  fruit: { hl: 1.25, hw: 0.6, h: 1.3, breakSpeed: 1.5, value: 900, name: 'FRUIT STAND' },
+  booth: { hl: 0.5, hw: 0.5, h: 2.4, breakSpeed: 3.0, value: 1200, name: 'PHONE BOOTH' },
+  portaloo: { hl: 0.6, hw: 0.6, h: 2.3, breakSpeed: 1.6, value: 700, name: 'PORTABLE TOILET (OCCUPIED)' },
+  statue: { hl: 0.7, hw: 0.7, h: 3.7, breakSpeed: 3.5, value: 9000, name: 'STATUE OF THE MAYOR' },
 };
 
 const SHOPS = [
-  'DONUTS', 'DENTIST', 'LAWYER', 'PIZZA', 'BODY SHOP', 'INSURANCE', 'CHIROPRACTOR',
-  'TACOS', 'VIDEO RENTAL', 'BAIL BONDS', 'GLASS REPAIR', 'DMV', 'ARCADE', 'BUMPER EMPORIUM',
-  'NECK BRACES', 'PAWN SHOP', 'LAUNDRY', 'CURB APPEAL REALTY', 'DRIVING SCHOOL', 'TOW TRUCKS',
+  'WHIPLASH & SONS LAW', 'DENTS R US', 'DONUT TURN LEFT', 'BLIND SPOT OPTICIANS',
+  'SPINE & DANDY CHIRO', 'ACT OF GOD INSURANCE', 'CRASH COURSE DRIVING', 'SKID MARKS LAUNDRY',
+  'BE KIND REWIND VIDEO', 'BAIL BONDS & BAGELS', 'SMASH & FIX GLASS', 'DMV: TAKE A NUMBER',
+  'BUMPER EMPORIUM', 'NECK BRACES 4 LESS', 'NO REFUNDS PAWN', 'CURB APPEAL REALTY',
+  'TOW-TALLY TACOS', 'LEANING TOWER OF PIZZA', 'DOUBLE PARKED PUB', 'NEUTRAL GROUNDS CAFE',
+  'SECOND GEAR THRIFT', 'TIGHT SPOT YOGA', 'CRUMPLE ZONE CAKES', 'PARALLEL UNIVERSE COMICS',
+  'SMALL CLAIMS SUSHI', 'HONK IF HUNGRY DINER', 'BACK IN 5 MINUTES', 'METER MAID MANICURES',
+  'FENDER BENDER BURGERS', 'HEAD ON HAIR SALON', 'TAILGATE TAILORS', 'PANIC STATIONS ARCADE',
 ];
 const BUILDING_COLORS = [0xaa5500, 0xaa00aa, 0x00aaaa, 0x5555ff, 0xaa0000, 0x00aa00, 0x555555, 0xff55ff];
 
@@ -154,10 +162,6 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
   // The biggest spot is the "primary" one (used for the par and the marker).
   level.spots.sort((a, b) => (a.owner === 'player' ? 0 : 1) - (b.owner === 'player' ? 0 : 1) || b.length - a.length);
 
-  // Moving hazards.
-  if (modSet.has('traffic')) level.traffic.push({ dir: -1, count: mode === 'wreck' ? 4 : 3, speed: mode === 'wreck' ? 7.5 : 6 });
-  if (mode === 'wreck') level.traffic.push({ dir: 1, count: 3, speed: 7 });
-  if (modSet.has('peds')) level.peds = mode === 'wreck' ? 14 : 7;
 
   // Sidewalk furniture on both sides.
   for (const dir of [1, -1]) {
@@ -199,6 +203,14 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
       const dir = k % 2 ? 1 : -1;
       level.props.push({ type: 'fruit', x: xMin + 50 + k * 50, z: dir * (CURB + 2.0), a: 0 });
     }
+    // The jump: a ramp across both lanes near the far end, run-up cleared.
+    const ramp = { ...RAMP, x0: xMax - 58 };
+    level.ramp = ramp;
+    level.props = level.props.filter((p) => !(Math.abs(p.z) < CURB - 2 && p.x > ramp.x0 - 30 && p.x < ramp.x0 + ramp.len + 4));
+    // something to land in
+    const lx = ramp.x0 + ramp.len + 16;
+    for (let k = 0; k < 12; k++) level.props.push({ type: 'crate', x: lx + (k % 3) * 1.05, z: -1.6 + Math.floor(k / 3) * 1.05, a: 0 });
+    for (let k = 0; k < 10; k++) level.props.push({ type: 'cone', x: lx - 8 + (k % 5) * 1.6, z: (k < 5 ? -1 : 1) * 2.4, a: 0 });
     // The mayor, immortalised in bronze, in the middle of a roundabout-ish plaza.
     level.props.push({ type: 'statue', x: xMin + 130, z: 0, a: 0 });
   } else {
@@ -206,6 +218,12 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     level.props.push({ type: 'sawhorse', x: xMax - 14, z: LANE, a: 0 });
     level.props.push({ type: 'sawhorse', x: xMax - 14, z: -LANE, a: 0 });
   }
+
+  // Moving hazards. (In wreck mode the traffic keeps to the stretch west of the ramp.)
+  const laneEnd = level.ramp ? level.ramp.x0 - 8 : undefined;
+  if (modSet.has('traffic')) level.traffic.push({ dir: -1, count: mode === 'wreck' ? 4 : 3, speed: mode === 'wreck' ? 7.5 : 6, xMax: laneEnd });
+  if (mode === 'wreck') level.traffic.push({ dir: 1, count: 3, speed: 7, xMax: laneEnd });
+  if (modSet.has('peds')) level.peds = mode === 'wreck' ? 14 : 7;
 
   // Remove props that ended up overlapping each other (keeps the street tidy).
   level.props = level.props.filter((p, i) => {
@@ -243,6 +261,10 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
   // Back walls behind the lots, for when a building is no longer there.
   for (const dir of [1, -1]) {
     level.walls.push({ kind: 'backwall', x: (xMin + xMax) / 2, z: dir * (bz0 + BUILDING_DEPTH + 0.5), hl: (xMax - xMin) / 2 + 30, hw: 0.5, a: 0 });
+  }
+  if (level.ramp) {
+    const rp = level.ramp;
+    level.walls.push({ kind: 'ramp', x: rp.x0 + rp.len / 2, z: (rp.z0 + rp.z1) / 2, hl: rp.len / 2, hw: (rp.z1 - rp.z0) / 2, a: 0 });
   }
   // Road closed barricades at each end (reaching back through the lots too)
   for (const end of [xMin, xMax]) {

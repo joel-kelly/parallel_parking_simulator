@@ -5,6 +5,7 @@ import { AIDriver } from './ai.js';
 import { evaluatePark, spotBounds } from './spot.js';
 import { Traffic } from './traffic.js';
 import { Pedestrians } from './peds.js';
+import { initAir, stepAir, carBottomAt, rampHeightClamped, RAMP_STEP } from './air.js';
 
 const SUB = 1 / 120;
 const PARK_HOLD = 1.5; // seconds stationary in the spot to count as parked
@@ -29,6 +30,7 @@ export class World {
     this.finished = false;
 
     this.player = makeCar(playerSpec, level.playerStart, 'car');
+    initAir(this.player);
     this.player.isPlayer = true;
     this.cars = [this.player];
 
@@ -57,6 +59,7 @@ export class World {
     this.ai = null;
     if (opts.aiSpec && level.aiStart) {
       const aiCar = makeCar(opts.aiSpec, level.aiStart, 'car');
+      initAir(aiCar);
       aiCar.isAI = true;
       this.cars.push(aiCar);
       const spot = level.spots.find((s) => s.owner === 'ai');
@@ -115,10 +118,10 @@ export class World {
   substep(dt, input) {
     this.time += dt;
     const p = this.player;
-    driveCar(p, this.playerInput(input, dt), dt, this.grip);
+    driveCar(p, this.playerInput(input, dt), dt, this.grip, !p.airborne);
     if (this.ai) {
       const aiIn = this.ai.car.parked ? STOP : this.ai.driver.update(dt);
-      driveCar(this.ai.car, aiIn, dt, this.grip);
+      driveCar(this.ai.car, aiIn, dt, this.grip, !this.ai.car.airborne);
     }
     this.traffic.step(dt);
     this.peds.step(dt);
@@ -139,6 +142,7 @@ export class World {
 
     for (const b of this.dynamics) if (!b.sleeping) integrate(b, dt);
     this.collide();
+    for (const c of this.cars) if (!c.off) stepAir(c, this.level, dt, (e) => this.emit(e));
     for (const c of this.cars) if (!c.off) this.updateCar(c, dt);
   }
 
@@ -225,6 +229,7 @@ export class World {
   contact(a, b) {
     const c = collideOBB(a, b);
     if (!c) return;
+    if (!this.overlapsInHeight(a, b, c)) return; // flying over it
     const impact = closingSpeed(a, b, c);
     const ob = this.bodyOwner.get(b);
 
@@ -248,6 +253,26 @@ export class World {
     if (b.sleeping) b.sleeping = false;
     resolve(a, b, c);
     if (impact > 0.25) this.hit(a, b, impact, c);
+  }
+
+  // Bottom and top heights of a body at a contact point.
+  heightSpan(body, px, pz) {
+    const o = this.bodyOwner.get(body);
+    if (o && o.car) {
+      const bot = carBottomAt(o.car, px, pz);
+      return [bot, bot + o.car.spec.height];
+    }
+    if (o && o.parked) return [0, o.parked.info.height];
+    if (o && o.prop) return [0, o.prop.def.h];
+    // The ramp only blocks you where its edge is too tall to drive up.
+    if (body.kind === 'ramp') return [-1, rampHeightClamped(this.level.ramp, px, pz) - RAMP_STEP];
+    return [-Infinity, Infinity];
+  }
+
+  overlapsInHeight(a, b, c) {
+    const [a0, a1] = this.heightSpan(a, c.px, c.pz);
+    const [b0, b1] = this.heightSpan(b, c.px, c.pz);
+    return a0 < b1 && b0 < a1;
   }
 
   hit(a, b, impact, c) {

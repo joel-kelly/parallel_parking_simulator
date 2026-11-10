@@ -45,7 +45,9 @@ export class Pedestrians {
         p.phase += dt * 6;
         if (p.x < lv.xMin + 6 || p.x > lv.xMax - 6) p.facing *= -1;
         if (p.t <= 0) {
-          if (!this.carNear(p, 12)) { p.state = 'cross'; p.side = -p.side; p.speed = WALK; p.waited = false; p.hurried = false; }
+          const rp = lv.ramp;
+          const onRamp = rp && p.x > rp.x0 - 3 && p.x < rp.x0 + rp.len + 3;
+          if (!this.carNear(p, 12) && !onRamp) { p.state = 'cross'; p.side = -p.side; p.speed = WALK; p.waited = false; p.hurried = false; }
           p.t = 6 + r() * 12;
         }
       } else if (p.state === 'cross') {

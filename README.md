@@ -36,9 +36,26 @@ Settings → Pages → Build and deployment → Source.
 | Esc | Pause |
 | I | Let the instructor park for you (Driving Test only, no points) |
 | Enter | Cash out early (Wreck mode) |
-| M / P | Mute / toggle retro colours |
+| M / P | Mute / switch between modern and classic EGA colours |
 
 No gear shifting: stop, keep holding S, and the car goes into reverse.
+
+### Controller
+
+Xbox-style controllers work in the browser (tested layout: 8BitDo Ultimate 2.4G
+in X-input mode; a Steam Controller works with Steam running, which presents it
+as an Xbox pad). Press any button once so the browser notices it.
+
+| Button | Driving | Menus |
+| --- | --- | --- |
+| RT / right stick up | Gas (analog) | |
+| LT / right stick down | Brake, then reverse (analog) | |
+| Left stick / D-pad | Steer | Navigate |
+| RB or B | Handbrake | B: back |
+| A | Cash out (Wreck), skip tutorial | Confirm |
+| X / Y | Camera / horn | X: paint (garage), Y: garage (results), quit (pause) |
+| LB | Instructor demo (nitro in Wreck mode) | |
+| Back / Start | Restart / pause | Start: confirm or resume |
 
 ## Modes
 
@@ -61,7 +78,8 @@ No gear shifting: stop, keep holding S, and the car goes into reverse.
     geyser, meters spill coins, trees topple, parked cars explode, shops lose their
     fronts and then collapse. Smash things in quick succession for a combo
     multiplier, hold SHIFT for nitro, and dodge the traffic (or don't). There is a
-    statue of the mayor. Press ENTER to file the insurance claim early.
+    statue of the mayor. At the far end is a ramp: hit it straight for big air;
+    land wrong and you flip, which ends the run. Press ENTER to file the claim early.
   - **Tutorial**: a one-minute guided intro. Runs automatically the first time.
 
 ### Hazards
@@ -105,12 +123,16 @@ open the **paint shop**. Progress and paint jobs are saved in the browser.
   - `mods.js`: the hazard definitions.
   - `world.js`: steps the sim, collisions, dings, curb hops, smashing, combos,
     earthquakes, the shrinking spot, park detection.
+  - `air.js`: the vertical part: suspension springs, ramp and curb heights,
+    jumps, pitch/roll and flip detection, layered on the flat 2D sim.
   - `traffic.js`, `peds.js`: the NPC drivers and pedestrians.
   - `ai.js`: parking planner + driver (used by the race AI and the instructor demo).
   - `grading.js`: scores and instructor quips.
   - `career.js`, `achievements.js`: the level list and the trophies.
-- `src/render/`: Three.js view, blocky models, debris/particles, and the retro
-  post-process (low-res render, black outlines, 64-colour EGA dithering).
+- `src/render/`: Three.js view, blocky models, debris/particles, and the
+  post-process (low-res render, outlines, colour grade). `looks.js` holds the
+  two colour styles: modern (default) and classic 64-colour EGA dithering.
+  Everything is authored in EGA colours and remapped for the modern look.
 - `src/main.js`: menus, HUD, modes, progression. `src/audio.js`: synthesized sounds.
 
 ## Tests

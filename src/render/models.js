@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { remapColor, remapCss, ramp, onLookChange } from './looks.js';
 import { CURB, SIDEWALK, SIDEWALK_H, LANE, BUILDING_DEPTH } from '../sim/level.js';
+import { rampProfile, rampTop } from '../sim/air.js';
 
 // The classic 16-colour EGA palette, for that early-90s shareware feel.
 export const EGA = {
@@ -9,27 +11,40 @@ export const EGA = {
   lred: 0xff5555, lmagenta: 0xff55ff, yellow: 0xffff55, white: 0xffffff,
 };
 
-// Three-step toon ramp: chunky, cartoony lighting.
-const ramp = (() => {
-  const data = new Uint8Array([90, 90, 90, 255, 175, 175, 175, 255, 255, 255, 255, 255]);
-  const t = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
-  t.minFilter = THREE.NearestFilter;
-  t.magFilter = THREE.NearestFilter;
-  t.needsUpdate = true;
-  return t;
-})();
-
+// Materials are made from authored EGA colours and recoloured when the look changes.
+// userData.base keeps the authored colour; userData.dim darkens it (charred wrecks).
 const matCache = new Map();
+const allMats = new Set();
+export function trackMaterial(m, base, dim = 1) {
+  m.userData.base = base;
+  m.userData.dim = dim;
+  allMats.add(m);
+  paint(m);
+  return m;
+}
+function paint(m) {
+  m.color.setHex(remapColor(m.userData.base)).multiplyScalar(m.userData.dim);
+  if (m.isMeshToonMaterial) m.gradientMap = ramp();
+}
+
 export function mat(color, opts = {}) {
   const key = color + JSON.stringify(opts);
   if (!matCache.has(key)) {
     const m = opts.basic
-      ? new THREE.MeshBasicMaterial({ color, transparent: !!opts.transparent, opacity: opts.opacity ?? 1 })
-      : new THREE.MeshToonMaterial({ color, gradientMap: ramp, transparent: !!opts.transparent, opacity: opts.opacity ?? 1 });
-    matCache.set(key, m);
+      ? new THREE.MeshBasicMaterial({ transparent: !!opts.transparent, opacity: opts.opacity ?? 1 })
+      : new THREE.MeshToonMaterial({ transparent: !!opts.transparent, opacity: opts.opacity ?? 1 });
+    matCache.set(key, trackMaterial(m, color));
   }
   return matCache.get(key);
 }
+
+// Sign textures are redrawn when the look changes.
+const textures = new Set();
+
+onLookChange(() => {
+  for (const m of allMats) paint(m);
+  for (const t of textures) { t.userData.draw(); t.needsUpdate = true; }
+});
 
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 export function box(w, h, d, color, x = 0, y = 0, z = 0, opts) {
@@ -57,20 +72,26 @@ export function textTexture(text, { bg = '#0000aa', fg = '#ffff55', w = 256, h =
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const g = c.getContext('2d');
-  g.fillStyle = bg; g.fillRect(0, 0, w, h);
-  if (border) { g.strokeStyle = border; g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4); }
-  g.fillStyle = '#000000';
-  let s = size;
-  g.font = `${s}px "Press Start 2P", monospace`;
-  while (g.measureText(text).width > w - 16 && s > 8) { s -= 2; g.font = `${s}px "Press Start 2P", monospace`; }
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(text, w / 2 + 2, h / 2 + 3);
-  g.fillStyle = fg;
-  g.fillText(text, w / 2, h / 2 + 1);
+  const draw = () => {
+    g.fillStyle = remapCss(bg); g.fillRect(0, 0, w, h);
+    if (border) { g.strokeStyle = remapCss(border); g.lineWidth = 4; g.strokeRect(2, 2, w - 4, h - 4); }
+    g.fillStyle = remapCss('#000000');
+    let s = size;
+    g.font = `${s}px "Press Start 2P", monospace`;
+    while (g.measureText(text).width > w - 16 && s > 8) { s -= 2; g.font = `${s}px "Press Start 2P", monospace`; }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, w / 2 + 2, h / 2 + 3);
+    g.fillStyle = remapCss(fg);
+    g.fillText(text, w / 2, h / 2 + 1);
+  };
+  draw();
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   t.colorSpace = THREE.SRGBColorSpace;
+  t.userData.draw = draw;
+  textures.add(t);
+  t.addEventListener('dispose', () => textures.delete(t));
   return t;
 }
 
@@ -477,6 +498,53 @@ export function buildBuilding(b) {
   hole.visible = false;
   group.add(hole);
   return { group, block, facade, extras, hole, info: b, w, h, depth, cx, z };
+}
+
+// Wreck mode's jump: a curved wooden kicker with chevrons and a warning banner.
+export function buildRamp(ramp) {
+  const g = new THREE.Group();
+  const width = ramp.z1 - ramp.z0;
+  const H = rampTop(ramp);
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  const steps = 16;
+  for (let i = 1; i <= steps; i++) {
+    const u = ramp.len * i / steps;
+    shape.lineTo(u, rampProfile(ramp, u));
+  }
+  shape.lineTo(ramp.len, 0);
+  shape.lineTo(0, 0);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false, curveSegments: 1 });
+  const wedge = new THREE.Mesh(geo, mat(EGA.brown));
+  wedge.castShadow = true;
+  wedge.receiveShadow = true;
+  wedge.position.set(ramp.x0, 0, ramp.z0);
+  g.add(wedge);
+  const cz = (ramp.z0 + ramp.z1) / 2;
+  // plank lines and chevron stripes laid on the surface
+  for (let i = 1; i < 12; i++) {
+    const u = ramp.len * i / 12;
+    const du = 0.05;
+    const slope = Math.atan2(rampProfile(ramp, Math.min(ramp.len, u + du)) - rampProfile(ramp, Math.max(0, u - du)), 2 * du);
+    const stripe = i % 3 === 0;
+    const m = box(stripe ? 0.3 : 0.05, 0.03, width, stripe ? EGA.yellow : EGA.black, ramp.x0 + u, rampProfile(ramp, u) + 0.02, cz, { basic: !stripe });
+    m.rotation.z = slope;
+    m.castShadow = false;
+    g.add(m);
+  }
+  // hazard trim along the lip and the sides
+  for (let k = 0; k < 6; k++) {
+    g.add(box(0.12, 0.3, width / 6, k % 2 ? EGA.black : EGA.yellow, ramp.x0 + ramp.len + 0.06, H - 0.15, ramp.z0 + (k + 0.5) * width / 6));
+  }
+  // a banner over the run-up
+  const bx = ramp.x0 - 6;
+  for (const z of [ramp.z0 - 0.6, ramp.z1 + 0.6]) g.add(box(0.2, 5, 0.2, EGA.white, bx, 2.5, z));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(width + 1.2, 1.1),
+    new THREE.MeshBasicMaterial({ map: textTexture('RAMP OF POOR DECISIONS', { bg: '#aa0000', fg: '#ffff55', w: 384 }), side: THREE.DoubleSide }));
+  sign.position.set(bx, 4.4, cz);
+  sign.rotation.y = -Math.PI / 2;
+  g.add(sign);
+  return g;
 }
 
 export function buildSpotMarker(spot, color = EGA.yellow) {

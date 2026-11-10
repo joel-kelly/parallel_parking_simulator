@@ -10,7 +10,7 @@ const DEFAULTS = () => ({
   difficulty: 'normal',
   best: {},          // `${vehicle}:${difficulty}` -> best score
   wins: 0,
-  ega: true,
+  look: 'modern',   // 'modern' or 'classic' (P key)
   muted: false,
   paint: {},         // vehicle id -> { color, accent }
   tutorialSeen: false,

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 // Renders the scene at low resolution, then draws it to the screen with
-// black depth outlines and (optionally) ordered dithering down to the
-// 64-colour EGA palette (each channel snapped to 00/55/AA/FF).
+// depth outlines. The classic look dithers down to the 64-colour EGA palette;
+// the modern look keeps full colour with a light grade.
 export class RetroPass {
   constructor(renderer) {
     this.renderer = renderer;
@@ -19,9 +19,9 @@ export class RetroPass {
         res: { value: new THREE.Vector2(4, 4) },
         near: { value: 0.1 },
         far: { value: 1000 },
-        ega: { value: 1 },
         flash: { value: 0 },
         tint: { value: new THREE.Vector3(1, 1, 1) },
+        look: { value: 1 },
       },
       vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -31,7 +31,7 @@ export class RetroPass {
         uniform sampler2D tColor;
         uniform sampler2D tDepth;
         uniform vec2 res;
-        uniform float near, far, ega, flash;
+        uniform float near, far, flash, look;
         uniform vec3 tint;
         varying vec2 vUv;
         float lin(vec2 uv) {
@@ -60,12 +60,22 @@ export class RetroPass {
           float dd = lin(vUv - vec2(0.0, px.y));
           float edge = max(max(dl, dr), max(du, dd)) - d;
           float thr = 0.06 * d + 0.15;
-          if (edge > thr && d < far * 0.6) col *= 0.08;
-          if (ega > 0.5) {
-            vec3 c = col;
+          bool outline = edge > thr && d < far * 0.6;
+          if (look < 0.5) {
+            // classic: black outlines, each channel snapped to 00/55/AA/FF with ordered dithering
+            if (outline) col *= 0.08;
             float b = bayer(gl_FragCoord.xy) - 0.5;
-            c = floor(c * 3.0 + 0.5 + b * 0.9) / 3.0;
-            col = clamp(c, 0.0, 1.0);
+            col = clamp(floor(col * 3.0 + 0.5 + b * 0.9) / 3.0, 0.0, 1.0);
+          } else {
+            // modern: dark navy outlines, a gentle colour grade and vignette
+            if (outline) col = mix(col, vec3(0.09, 0.07, 0.17), 0.88);
+            float l = dot(col, vec3(0.299, 0.587, 0.114));
+            col = mix(vec3(l), col, 1.12);
+            col = (col - 0.5) * 1.06 + 0.5;
+            col *= vec3(1.02, 1.0, 0.97);
+            vec2 v = vUv - 0.5;
+            col *= 1.0 - dot(v, v) * 0.45;
+            col = clamp(col, 0.0, 1.0);
           }
           col = mix(col, tint, flash);
           gl_FragColor = vec4(col, 1.0);

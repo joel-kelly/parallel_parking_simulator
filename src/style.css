@@ -131,6 +131,8 @@ html, body {
   max-width: 460px; margin: 10px auto 0; min-height: 3.6em;
   font-size: 9px; line-height: 1.8; color: var(--lgray); text-align: center;
 }
+.slogan { min-height: 1.4em; transition: opacity 0.35s, transform 0.35s; }
+.slogan.out { opacity: 0; transform: translateY(-4px); }
 .tagline.new { color: var(--lgreen); margin-top: -8px; }
 .menu li.sel { color: var(--yellow); background: var(--black); }
 .menu li.sel::before { content: '\25B6'; position: absolute; left: 14px; color: var(--lred); }
@@ -289,4 +291,11 @@ h2 { font-size: 18px; color: var(--yellow); text-shadow: 3px 3px 0 var(--black);
   #combo .big { font-size: 28px; }
   #hud-top .timer { font-size: 18px; padding: 6px 10px; }
   .trophies { max-height: calc(100vh - 200px); }
+}
+
+.pad-toast {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  max-width: calc(100% - 32px); padding: 8px 12px; z-index: 100;
+  background: #000; color: #fff; border: 2px solid #fff;
+  font-size: 10px; line-height: 1.6; text-align: center;
 }

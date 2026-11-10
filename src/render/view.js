@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RetroPass } from './post.js';
-import { buildCar, buildProp, buildStreet, buildSpotMarker, buildPed, nightSkyTexture, greySkyTexture, EGA, box, mat } from './models.js';
+import { style, skyTexture, onLookChange, getLook } from './looks.js';
+import { buildCar, buildProp, buildStreet, buildSpotMarker, buildRamp, buildPed, nightSkyTexture, greySkyTexture, EGA, box, mat, trackMaterial } from './models.js';
 import { Debris, Particles, Popups, Skids } from './effects.js';
 import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
 import { spotBounds } from '../sim/spot.js';
@@ -30,7 +31,8 @@ export class View {
     this.tint = new THREE.Vector3(1, 1, 1);
     this.camPos = new THREE.Vector3(0, 8, 10);
     this.camLook = new THREE.Vector3();
-    this.ega = true;
+    this.rigs = []; // scenes whose sky, fog and lights follow the look
+    onLookChange(() => this.rigs.forEach(applyRig));
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -49,7 +51,6 @@ export class View {
     if (this.particles) this.particles.material.uniforms.scale.value = this.pxScale;
   }
 
-  setEga(on) { this.ega = on; }
 
   // A full-screen flash in a colour (white by default).
   doFlash(strength, color = 0xffffff) {
@@ -71,29 +72,32 @@ export class View {
     const scene = new THREE.Scene();
     this.scene = scene;
 
-    // sky, light and weather
+    // sky, light and weather (the plain street follows the colour look; weather has its own)
+    this.rigs = this.rigs.filter((r) => r.garage);
+    let hemi, sun;
     if (this.night) {
       scene.background = nightSkyTexture();
       scene.fog = new THREE.Fog(0x000011, 30, 140);
-      scene.add(new THREE.HemisphereLight(0x5555ff, 0x000000, 0.22));
-      this.sun = new THREE.DirectionalLight(0x5555ff, 0.25);
+      hemi = new THREE.HemisphereLight(0x5555ff, 0x000000, 0.22);
+      sun = new THREE.DirectionalLight(0x5555ff, 0.25);
     } else if (this.foggy) {
       scene.background = greySkyTexture();
       scene.fog = new THREE.Fog(0xaaaaaa, 4, 34);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.3));
-      this.sun = new THREE.DirectionalLight(0xffffff, 0.8);
+      hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.3);
+      sun = new THREE.DirectionalLight(0xffffff, 0.8);
     } else if (this.rain) {
       scene.background = greySkyTexture();
       scene.fog = new THREE.Fog(0x555555, 50, 160);
-      scene.add(new THREE.HemisphereLight(0xaaaaaa, 0x555555, 1.2));
-      this.sun = new THREE.DirectionalLight(0xaaaaaa, 1.2);
+      hemi = new THREE.HemisphereLight(0xaaaaaa, 0x555555, 1.2);
+      sun = new THREE.DirectionalLight(0xaaaaaa, 1.2);
     } else {
-      scene.background = skyTexture();
-      scene.fog = new THREE.Fog(this.ice ? 0xffffff : 0x55ffff, 90, 220);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.6));
-      this.sun = new THREE.DirectionalLight(0xffffff, 2.2);
+      scene.fog = new THREE.Fog(0xffffff, 90, 220);
+      hemi = new THREE.HemisphereLight();
+      sun = new THREE.DirectionalLight();
+      this.rigs.push(applyRig({ scene, hemi, sun, extra: 0 }));
     }
-    const sun = this.sun;
+    scene.add(hemi);
+    this.sun = sun;
     sun.position.set(-30, 60, 25);
     sun.castShadow = !this.night;
     sun.shadow.mapSize.set(1024, 1024);
@@ -106,9 +110,17 @@ export class View {
     this.buildingViews = street.buildings;
     if (!this.night && !this.foggy) addClouds(scene, world.level, this.rain ? EGA.dgray : EGA.white);
 
+    if (world.level.ramp) scene.add(buildRamp(world.level.ramp));
+
     this.carViews = world.cars.map((c) => {
       const v = buildCar(c.spec, c.spec.color, c.spec.accent);
-      scene.add(v.root);
+      // The holder sits at the centre of mass and carries pitch and roll, so
+      // the whole car (wheels too) can tumble.
+      v.holder = new THREE.Group();
+      v.holder.rotation.order = 'YZX';
+      v.root.position.y = -c.hcm;
+      v.holder.add(v.root);
+      scene.add(v.holder);
       v.car = c;
       v.roll = 0;
       v.dist = 0;
@@ -121,7 +133,7 @@ export class View {
       const v = this.carViews.find((cv) => cv.car.isAI);
       const tint = mat(world.player.spec.color === EGA.lmagenta ? EGA.lcyan : EGA.lmagenta);
       v.body.traverse((o) => {
-        if (o.isMesh && o.material.color && o.material.color.getHex() === world.ai.car.spec.color) o.material = tint;
+        if (o.isMesh && o.material.userData.base === world.ai.car.spec.color) o.material = tint;
       });
     }
 
@@ -264,6 +276,18 @@ export class View {
       this.debris.burst(e.x, 0.8, e.z, [EGA.lcyan, EGA.white, EGA.brown], Math.round(6 + e.impact * 2), 3 + e.impact * 0.6, dir);
       this.popups.add('SMASH!', e.x, 2, e.z, '#55ffff', 1.3);
       this.shake = Math.max(this.shake, 0.4);
+    } else if (e.type === 'land' && e.car.isPlayer) {
+      const b = e.car.body;
+      if (!e.car.flipped) this.popups.add(`AIR TIME ${e.airTime.toFixed(1)}s!`, b.x, 3, b.z, '#55ff55', 1.3);
+      if (e.impact > 3) P.sparks(b.x, 0.3, b.z, Math.round(6 + e.impact * 2), 3);
+      this.shake = Math.max(this.shake, Math.min(0.9, e.impact * 0.08));
+    } else if (e.type === 'flip') {
+      P.sparks(e.x, 0.5, e.z, 24, 5);
+      this.debris.burst(e.x, 0.8, e.z, [EGA.lcyan, EGA.white, EGA.dgray], 16, 5);
+      for (let i = 0; i < 12; i++) P.smoke(e.x, 1, e.z, true);
+      if (e.car.isPlayer) this.popups.add(pickFlipWord(), e.x, 3, e.z, '#ff5555', 2);
+      this.shake = Math.max(this.shake, 1.0);
+      this.flash = Math.max(this.flash, 0.3);
     } else if (e.type === 'curb' && e.car.isPlayer) {
       this.popups.add('CURB HOP!', e.car.body.x, 1.8, e.car.body.z, '#ffffff');
       this.shake = Math.max(this.shake, 0.2);
@@ -354,7 +378,7 @@ export class View {
 
     this.flash = Math.max(0, this.flash - dt * 2.5);
     const u = this.post.material.uniforms;
-    u.ega.value = this.ega ? 1 : 0;
+    u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = this.flash;
     u.tint.value.copy(this.tint);
     this.post.render(this.scene, this.camera);
@@ -379,28 +403,21 @@ export class View {
 
   syncCar(v, dt) {
     const c = v.car, b = c.body;
-    v.root.visible = !c.off;
+    v.holder.visible = !c.off;
     if (c.off) return;
-    // ride height from wheels on the sidewalk
-    const h = c.wheelH.map((x) => x * SIDEWALK_H);
-    const front = (h[0] + h[1]) / 2, rear = (h[2] + h[3]) / 2;
-    const right = (h[0] + h[3]) / 2, left = (h[1] + h[2]) / 2;
-    const y = (front + rear) / 2;
-    v.root.position.set(b.x, y, b.z);
-    v.root.rotation.set(0, -b.a, 0);
-    const pitch = Math.atan2(front - rear, c.spec.wheelbase);
-    const roll = Math.atan2(right - left, c.spec.width);
+    v.holder.position.set(b.x, c.y, b.z);
+    v.holder.rotation.set(-c.roll, -b.a, c.pitch);
     // body lean from acceleration and steering, for cartoon wobble
-    const targetRoll = -c.speed * Math.tan(c.steer) * 0.012;
+    const targetRoll = c.airborne ? 0 : -c.speed * Math.tan(c.steer) * 0.012;
     v.roll += (targetRoll - v.roll) * Math.min(1, dt * 6);
-    v.body.rotation.set(v.roll - roll, 0, pitch);
+    v.body.rotation.set(v.roll, 0, 0);
     v.dist += c.speed * dt;
     for (const w of v.wheels) {
       if (w.front) w.pivot.rotation.y = -c.steer;
       w.wheel.rotation.z = -v.dist / v.radius;
     }
     // tyre marks when sliding or when the handbrake is dragging at speed
-    const sliding = Math.abs(c.slip) > 1.2 || (c.lastInput.handbrake && Math.abs(c.speed) > 2.5);
+    const sliding = !c.airborne && (Math.abs(c.slip) > 1.2 || (c.lastInput.handbrake && Math.abs(c.speed) > 2.5));
     if (sliding && (c.isPlayer || c.isAI)) {
       v.skidDist += Math.abs(c.speed) * dt;
       if (v.skidDist > 0.35) {
@@ -437,14 +454,15 @@ export class View {
     const b = p.body;
     const fx = Math.cos(b.a), fz = Math.sin(b.a);
     const L = p.spec.length;
+    const lift = Math.max(0, p.y - p.hcm); // follow the car up into the air
     let pos, look;
     if (this.camMode === 0) { // chase
       const back = 6 + L * 0.9;
-      pos = new THREE.Vector3(b.x - fx * back, 4.2 + L * 0.35, b.z - fz * back);
-      look = new THREE.Vector3(b.x + fx * 3, 0.8, b.z + fz * 3);
+      pos = new THREE.Vector3(b.x - fx * back, 4.2 + L * 0.35 + lift, b.z - fz * back);
+      look = new THREE.Vector3(b.x + fx * 3, 0.8 + lift, b.z + fz * 3);
     } else if (this.camMode === 1) { // high chase view, good for judging gaps
-      pos = new THREE.Vector3(b.x - fx * (4 + L), 11 + L, b.z - fz * (4 + L));
-      look = new THREE.Vector3(b.x + fx * 2, 0, b.z + fz * 2);
+      pos = new THREE.Vector3(b.x - fx * (4 + L), 11 + L + lift, b.z - fz * (4 + L));
+      look = new THREE.Vector3(b.x + fx * 2, lift, b.z + fz * 2);
     } else { // top down, street-aligned: driving direction to the right, curb at the bottom
       pos = new THREE.Vector3(b.x, 18 + L * 1.5, b.z + 0.01);
       look = new THREE.Vector3(b.x, 0, b.z);
@@ -501,9 +519,10 @@ export class View {
   renderShowcase(dt, spec, color, accent, sideLayout) {
     if (!this.show) {
       const scene = new THREE.Scene();
-      scene.background = skyTexture();
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.7));
-      const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+      const hemi = new THREE.HemisphereLight();
+      const sun = new THREE.DirectionalLight();
+      scene.add(hemi);
+      this.rigs.push(applyRig({ scene, hemi, sun, extra: 0.1, garage: true }));
       sun.position.set(-8, 14, 10);
       sun.castShadow = true;
       sun.shadow.mapSize.set(1024, 1024);
@@ -551,7 +570,7 @@ export class View {
     else cam.clearViewOffset();
     cam.updateProjectionMatrix();
     const u = this.post.material.uniforms;
-    u.ega.value = this.ega ? 1 : 0;
+    u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = 0;
     this.post.render(S.scene, cam);
   }
@@ -569,7 +588,7 @@ export class View {
     this.camera.lookAt(x + 12, 1.2, 3);
     this.particles.update(dt);
     this.debris.update(dt);
-    this.post.material.uniforms.ega.value = this.ega ? 1 : 0;
+    this.post.material.uniforms.look.value = getLook() === 'classic' ? 0 : 1;
     this.post.material.uniforms.flash.value = 0;
     this.post.render(this.scene, this.camera);
   }
@@ -588,28 +607,29 @@ function addHeadlights(v, spec, strength) {
   }
 }
 
-const charCache = new Map();
-function charred(m) {
-  if (!m.color) return m;
-  const key = m.color.getHex();
-  if (!charCache.has(key)) {
-    const c = m.clone();
-    c.color = m.color.clone().multiplyScalar(0.18);
-    charCache.set(key, c);
-  }
-  return charCache.get(key);
+function pickFlipWord() {
+  const w = ['ROLLED IT!', 'TURTLED!', 'WRONG WAY UP!', 'SKY IS DOWN!'];
+  return w[Math.floor(Math.random() * w.length)];
 }
 
-function skyTexture() {
-  const c = document.createElement('canvas');
-  c.width = 4; c.height = 64;
-  const g = c.getContext('2d');
-  const bands = ['#0000aa', '#0000aa', '#5555ff', '#5555ff', '#55ffff', '#55ffff', '#ffffff'];
-  bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 64, 4, 64 / bands.length + 1); });
-  const t = new THREE.CanvasTexture(c);
-  t.magFilter = THREE.NearestFilter;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+const charCache = new Map();
+function charred(m) {
+  if (!m.color || m.userData.base === undefined) return m;
+  if (!charCache.has(m)) charCache.set(m, trackMaterial(m.clone(), m.userData.base, 0.18));
+  return charCache.get(m);
+}
+
+// Points a scene's sky, fog and lights at the current look.
+function applyRig(r) {
+  const st = style();
+  r.scene.background = skyTexture();
+  if (r.scene.fog) r.scene.fog.color.setHex(st.fog);
+  r.hemi.color.setHex(st.hemiSky);
+  r.hemi.groundColor.setHex(st.hemiGround);
+  r.hemi.intensity = st.hemi + r.extra;
+  r.sun.color.setHex(st.sun);
+  r.sun.intensity = st.sunI;
+  return r;
 }
 
 function addClouds(scene, level, color) {

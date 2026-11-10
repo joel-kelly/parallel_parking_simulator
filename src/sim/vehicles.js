@@ -120,18 +120,25 @@ export function makeCar(spec, pose, kind = 'car') {
  *
  * input: { throttle: -1..1, steer: -1..1, handbrake: bool, nitro?: bool }
  * grip: 1 on dry tarmac, lower on rain/ice (slower braking, sliding tyres).
+ * grounded: false while airborne (no grip at all).
  */
-export function driveCar(car, input, dt, grip = 1) {
+export function driveCar(car, input, dt, grip = 1, grounded = true) {
   const spec = car.spec;
   const b = car.body;
   const c = Math.cos(b.a), s = Math.sin(b.a);
-  let v = b.vx * c + b.vz * s;
+  // Read speed in the heading we last set the velocity in. Tyres carry the
+  // velocity round with the car as it turns; measuring in the new heading
+  // would turn leftover sideways slip into extra forward speed every tick.
+  const va = car.velA ?? b.a;
+  const vc = Math.cos(va), vs = Math.sin(va);
+  let v = b.vx * vc + b.vz * vs;
   car.lastInput = input;
 
   // Steering wheel turns at a finite rate and self-centres when released.
   const target = input.steer * spec.maxSteer;
   const rate = (input.steer === 0 ? 3.0 : 2.2) * dt;
   car.steer += Math.max(-rate, Math.min(rate, target - car.steer));
+  if (!grounded) { car.speed = b.vx * c + b.vz * s; car.velA = undefined; car.slip = 0; return; } // no grip in the air
 
   const brake = 11 * (0.3 + 0.7 * grip);
   const accel = spec.accel * (0.6 + 0.4 * grip) * (input.nitro ? 2.6 : 1);
@@ -161,7 +168,7 @@ export function driveCar(car, input, dt, grip = 1) {
   const sx = -s, sz = c;
   // Tyres grip hard sideways: blend lateral slip and yaw toward the ideal
   // (no-slip) values. Forward speed is applied directly.
-  const lat = b.vx * sx + b.vz * sz;
+  const lat = -b.vx * vs + b.vz * vc;
   const latDesired = wDesired * ahead;
   car.slip = lat - latDesired;
   const gripRate = (input.handbrake ? 2.5 : 30) * grip;
@@ -171,6 +178,7 @@ export function driveCar(car, input, dt, grip = 1) {
   b.vz = v * s + latNew * sz;
   b.w += (wDesired - b.w) * g;
   car.speed = v;
+  car.velA = b.a;
 }
 
 function shift(car, gear) {

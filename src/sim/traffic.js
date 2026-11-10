@@ -5,6 +5,7 @@ import { LANE, CURB } from './level.js';
 import { collideOBB } from './physics.js';
 import { wrapAngle } from './spot.js';
 import { speedCtl, clamp } from './ai.js';
+import { initAir } from './air.js';
 
 const FAR = 5000; // where cars wait between laps (nothing is out there)
 
@@ -14,11 +15,13 @@ export class Traffic {
     this.cars = [];
     const lv = world.level;
     for (const lane of lanes) {
-      const span = lv.xMax - lv.xMin - 16;
+      const hi = lane.xMax ?? lv.xMax;
+      const span = hi - lv.xMin - 16;
       for (let i = 0; i < lane.count; i++) {
         const spec = trafficSpec(world.rand);
         const x = lv.xMin + 8 + (i + 0.5) * span / lane.count + (world.rand() - 0.5) * 6;
         const car = makeCar(spec, { x, z: lane.dir * LANE, a: lane.dir > 0 ? 0 : Math.PI }, 'car');
+        initAir(car);
         car.isTraffic = true;
         car.lane = lane;
         car.blockedT = 0;
@@ -56,7 +59,7 @@ export class Traffic {
 
   spawn(c) {
     const lv = this.world.level, b = c.body, dir = c.lane.dir;
-    b.x = dir > 0 ? lv.xMin + 6 : lv.xMax - 6;
+    b.x = dir > 0 ? lv.xMin + 6 : (c.lane.xMax ?? lv.xMax) - 6;
     b.z = dir * LANE;
     b.a = dir > 0 ? 0 : Math.PI;
     b.vx = b.vz = b.w = 0;
@@ -74,9 +77,10 @@ export class Traffic {
         if (c.offT > 0 || !this.spawn(c)) continue;
         c.off = false;
       }
-      driveCar(c, this.drive(c, dt), dt, this.world.grip);
+      driveCar(c, this.drive(c, dt), dt, this.world.grip, !c.airborne);
       const b = c.body;
-      if ((c.lane.dir > 0 && b.x > lv.xMax - 5) || (c.lane.dir < 0 && b.x < lv.xMin + 5)) this.park(c, 0.5 + this.world.rand() * 3);
+      const hi = c.lane.xMax ?? lv.xMax;
+      if ((c.lane.dir > 0 && b.x > hi - 5) || (c.lane.dir < 0 && b.x < lv.xMin + 5)) this.park(c, 0.5 + this.world.rand() * 3);
     }
   }
 
