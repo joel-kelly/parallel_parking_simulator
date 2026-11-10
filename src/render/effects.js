@@ -305,3 +305,27 @@ export class Popups {
 
   clear() { this.items.forEach((it) => it.d.remove()); this.items = []; }
 }
+
+// Tyre marks: a recycled pool of flat dark strips laid under the rear wheels
+// when the tyres are sliding.
+export class Skids {
+  constructor(scene, max = 400) {
+    this.pool = [];
+    this.i = 0;
+    for (let k = 0; k < max; k++) {
+      const m = box(0.5, 0.01, 0.22, EGA.black, 0, -5, 0, { basic: true });
+      m.visible = false;
+      m.castShadow = m.receiveShadow = false;
+      scene.add(m);
+      this.pool.push(m);
+    }
+  }
+
+  mark(x, z, a, len = 0.5) {
+    const m = this.pool[this.i++ % this.pool.length];
+    m.visible = true;
+    m.position.set(x, groundAt(x, z) + 0.012, z);
+    m.rotation.set(0, -a, 0);
+    m.scale.set(len, 0.01, 0.22);
+  }
+}

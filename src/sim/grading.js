@@ -18,12 +18,20 @@ const QUIPS = {
   F: ['I am getting out of the car now.', 'Please return your licence to the nearest bin.', 'The insurance company has been notified. They laughed.'],
 };
 
-export function gradePark({ car, evalResult, time, par, difficulty }) {
+/**
+ * spot: the spot that was parked in (for the tight-squeeze bonus on Mystery Street).
+ * mods: Set of active modifiers (hazard pay bumps the points).
+ */
+export function gradePark({ car, evalResult, time, par, difficulty, spot = null, mods = new Set(), hidden = false }) {
   const items = [];
   let score = 1000;
   const pen = (label, pts, detail) => {
     pts = Math.round(pts);
     if (pts > 0) { score -= pts; items.push({ label, pts: -pts, detail }); }
+  };
+  const bonus = (label, pts, detail) => {
+    pts = Math.round(pts);
+    if (pts > 0) { score += pts; items.push({ label, pts: `+${pts}`, detail, good: true }); }
   };
 
   const extraMoves = Math.max(0, car.moves - par);
@@ -38,15 +46,24 @@ export function gradePark({ car, evalResult, time, par, difficulty }) {
   pen('CENTERING', Math.min(150, Math.max(0, off - 0.15) * 80), `${off.toFixed(2)}m off centre`);
   pen('DAWDLING', Math.min(150, Math.max(0, time - 35) * 3), `${time.toFixed(1)}s`);
   pen('VANDALISM', car.propsBroken * 100, `${car.propsBroken} thing${car.propsBroken === 1 ? '' : 's'} destroyed`);
+  pen('TERRORISED PEDESTRIANS', car.scares * 60, `${car.scares} dive${car.scares === 1 ? '' : 's'} for cover`);
+  if (hidden && spot) {
+    const spare = spot.length - car.spec.length - (car.spec.extraRoom || 0);
+    if (spare < 1.0) bonus('TIGHT SQUEEZE', 200, `only ${spare.toFixed(2)}m to spare`);
+    else if (spare < 1.6) bonus('SNUG FIT', 100, `${spare.toFixed(2)}m to spare`);
+  }
 
   score = Math.max(0, score);
   const g = GRADES.find((x) => score >= x.min);
   const quips = QUIPS[g.letter];
   let quip = quips[Math.floor(Math.random() * quips.length)];
   if (car.propsBroken >= 3) quip = 'You hit more things than you missed. Bold strategy.';
+  else if (car.scares >= 3) quip = 'Three people dived for cover. One of them was me. From inside the car.';
   else if (d > 1.0) quip = 'You parked closer to the moon than the curb.';
   else if (car.dings >= 4) quip = 'The other cars are filing a class action.';
 
-  const points = Math.round(score * difficulty.mult / 4);
-  return { score, letter: g.letter, title: g.title, items, quip, points };
+  // Hazard pay: each active modifier is worth a bit more.
+  const hazard = 1 + 0.2 * mods.size;
+  const points = Math.round(score * difficulty.mult * hazard / 4);
+  return { score, letter: g.letter, title: g.title, items, quip, points, hazard };
 }

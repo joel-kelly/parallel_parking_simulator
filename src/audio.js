@@ -4,6 +4,8 @@ export class Audio {
     this.ctx = null;
     this.muted = false;
     this.beepT = 0;
+    this.nitroOsc = null;
+    this.sirenT = 0;
   }
 
   // Browsers only allow audio after a user gesture.
@@ -49,20 +51,25 @@ export class Audio {
     o.start(t); o.stop(t + dur + 0.02);
   }
 
-  crash(impact) {
+  noiseBurst(vol, dur, freq, q = 0.8, when = 0) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime;
+    const t = this.ctx.currentTime + when;
     const s = this.ctx.createBufferSource();
     s.buffer = this.noise;
     const f = this.ctx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = 300 + Math.random() * 600; f.Q.value = 0.8;
+    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
     const g = this.ctx.createGain();
-    const v = Math.min(0.6, 0.08 + impact * 0.06);
-    const dur = 0.1 + Math.min(0.5, impact * 0.05);
-    g.gain.setValueAtTime(v, t);
+    g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.connect(f); f.connect(g); g.connect(this.master);
     s.start(t); s.stop(t + dur);
+  }
+
+  crash(impact) {
+    if (!this.ctx) return;
+    const v = Math.min(0.6, 0.08 + impact * 0.06);
+    const dur = 0.1 + Math.min(0.5, impact * 0.05);
+    this.noiseBurst(v, dur, 300 + Math.random() * 600);
     if (impact < 1.5) this.tone(1800, 0.08, 'square', 0.05); // "ding"
     else this.tone(120, 0.2, 'square', 0.12, 0, -60);
   }
@@ -92,10 +99,68 @@ export class Audio {
       this.tone(550, 0.35, 'sawtooth', 0.12, 0.38, -250);
     } else if (style === 'monster') {
       this.tone(110, 0.5, 'sawtooth', 0.18); this.tone(147, 0.5, 'sawtooth', 0.12);
+    } else if (style === 'bus') { // air horn
+      this.tone(185, 0.7, 'sawtooth', 0.2); this.tone(233, 0.7, 'sawtooth', 0.16); this.tone(92, 0.7, 'square', 0.1);
+    } else if (style === 'kart') { // meep meep
+      this.tone(1400, 0.08, 'square', 0.1); this.tone(1400, 0.08, 'square', 0.1, 0.12);
     } else {
       this.tone(415, 0.3, 'square', 0.1); this.tone(523, 0.3, 'square', 0.08);
     }
   }
+
+  // Another driver, leaning on it.
+  honk() { this.tone(330, 0.5, 'square', 0.09); this.tone(415, 0.5, 'square', 0.07); }
+
+  // A pedestrian diving for cover.
+  yelp() { this.tone(900 + Math.random() * 400, 0.18, 'square', 0.07, 0, 500); }
+
+  // Earthquake rumble.
+  rumble(dur = 1.6) {
+    this.noiseBurst(0.35, dur, 60, 0.5);
+    this.tone(40, dur, 'sawtooth', 0.15, 0, 10);
+  }
+
+  // Thunder for the downpour.
+  thunder() { this.noiseBurst(0.4, 1.4, 90, 0.4); this.tone(50, 1.0, 'sawtooth', 0.1, 0.1, -20); }
+
+  // Police siren for the end of Wreck-reation.
+  siren(n = 4) {
+    for (let i = 0; i < n; i++) {
+      this.tone(600, 0.4, 'square', 0.08, i * 0.8, 300);
+      this.tone(900, 0.4, 'square', 0.08, i * 0.8 + 0.4, -300);
+    }
+  }
+
+  // Nitro: a rising rasp while held.
+  nitro(on) {
+    if (!this.ctx) return;
+    if (on && !this.nitroOsc) {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(70, this.ctx.currentTime);
+      o.frequency.linearRampToValueAtTime(220, this.ctx.currentTime + 1.5);
+      g.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.1, this.ctx.currentTime + 0.1);
+      o.connect(g); g.connect(this.master);
+      o.start();
+      this.nitroOsc = { o, g };
+    } else if (!on && this.nitroOsc) {
+      const { o, g } = this.nitroOsc;
+      g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.15);
+      o.stop(this.ctx.currentTime + 0.2);
+      this.nitroOsc = null;
+    }
+  }
+
+  tick(urgent) { this.tone(urgent ? 1200 : 800, 0.05, 'square', urgent ? 0.09 : 0.05); }
+
+  trophy() {
+    [659, 784, 1047, 1319, 1568].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.1, i * 0.09));
+    this.tone(2093, 0.5, 'triangle', 0.08, 0.45);
+  }
+
+  strike() { this.tone(220, 0.3, 'square', 0.12); this.tone(165, 0.5, 'square', 0.12, 0.25); }
 
   blip() { this.tone(660, 0.05, 'square', 0.06); }
   select() { this.tone(880, 0.06, 'square', 0.06); this.tone(1320, 0.08, 'square', 0.06, 0.06); }

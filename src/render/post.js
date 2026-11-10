@@ -21,6 +21,7 @@ export class RetroPass {
         far: { value: 1000 },
         ega: { value: 1 },
         flash: { value: 0 },
+        tint: { value: new THREE.Vector3(1, 1, 1) },
       },
       vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -31,6 +32,7 @@ export class RetroPass {
         uniform sampler2D tDepth;
         uniform vec2 res;
         uniform float near, far, ega, flash;
+        uniform vec3 tint;
         varying vec2 vUv;
         float lin(vec2 uv) {
           float d = texture2D(tDepth, uv).x;
@@ -65,7 +67,7 @@ export class RetroPass {
             c = floor(c * 3.0 + 0.5 + b * 0.9) / 3.0;
             col = clamp(c, 0.0, 1.0);
           }
-          col = mix(col, vec3(1.0), flash);
+          col = mix(col, tint, flash);
           gl_FragColor = vec4(col, 1.0);
         }
       `,

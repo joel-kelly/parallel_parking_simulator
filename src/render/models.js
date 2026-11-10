@@ -131,6 +131,47 @@ export function buildCar(spec, color, accent = EGA.white) {
       const cherry = sphere(0.14, EGA.lred, 6); cherry.position.set(-0.3, H + 1.6, 0);
       add(cone, scoop, cherry);
     }
+  } else if (style === 'kart') {
+    // a go-kart frame with a shopping trolley basket where the seat should be
+    add(box(L * 0.9, 0.12, W * 0.8, EGA.dgray, 0, ride + 0.1, 0));                 // frame
+    add(box(0.5, 0.35, W * 0.5, EGA.lred, L * 0.05, ride + 0.35, 0));               // seat
+    add(box(0.3, 0.55, W * 0.5, EGA.lred, -L * 0.1, ride + 0.6, 0));               // seat back
+    add(box(0.08, 0.5, 0.08, EGA.dgray, L * 0.3, ride + 0.45, 0));                 // steering column
+    const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.04, 6, 10), mat(EGA.black));
+    wheelRing.position.set(L * 0.28, ride + 0.75, 0); wheelRing.rotation.y = Math.PI / 2 - 0.5; wheelRing.castShadow = true;
+    add(wheelRing);
+    // the basket: lattice of thin bars (open at the top)
+    const bx = -L * 0.32, bw = W * 0.7, bl = L * 0.3, bh = 0.6, by = ride + 0.5;
+    for (let i = 0; i <= 3; i++) {
+      add(box(bl, 0.03, 0.03, color, bx, by + i * bh / 3, bw / 2), box(bl, 0.03, 0.03, color, bx, by + i * bh / 3, -bw / 2));
+      add(box(0.03, 0.03, bw, color, bx - bl / 2, by + i * bh / 3, 0), box(0.03, 0.03, bw, color, bx + bl / 2, by + i * bh / 3, 0));
+    }
+    for (let i = 0; i <= 4; i++) {
+      add(box(0.03, bh, 0.03, color, bx - bl / 2 + i * bl / 4, by + bh / 2, bw / 2), box(0.03, bh, 0.03, color, bx - bl / 2 + i * bl / 4, by + bh / 2, -bw / 2));
+    }
+    add(box(bl * 0.98, 0.03, bw * 0.98, color, bx, by, 0));                        // basket floor
+    add(box(0.5, 0.3, 0.4, accent, bx, by + 0.2, 0.1), box(0.3, 0.25, 0.3, EGA.lgreen, bx + 0.1, by + 0.15, -0.2)); // groceries
+    add(box(0.12, 0.9, 0.05, 0xff8800, -L * 0.45, ride + 0.9, 0), box(0.3, 0.25, 0.04, 0xff8800, -L * 0.45, ride + 1.3, 0)); // safety flag
+    add(box(0.4, 0.2, W * 0.4, EGA.dgray, -L * 0.12, ride + 0.25, 0));             // engine
+  } else if (style === 'bus') {
+    const capH = H - ride - 0.1;
+    add(box(L, capH, W, color, 0, ride + capH / 2 + 0.05, 0));
+    add(box(L * 0.2, capH * 0.4, W * 1.02, EGA.white, L * 0.4, ride + capH * 0.45, 0)); // hood
+    add(box(L * 0.95, 0.22, W * 1.02, accent, 0, ride + capH * 0.4, 0));             // black rub rail
+    add(box(0.06, capH * 0.45, W * 0.85, glass, L / 2 + 0.01, ride + capH * 0.7, 0)); // windscreen
+    const nWin = Math.max(4, Math.round(L / 1.1));
+    for (let i = 0; i < nWin; i++) {
+      const wx = -L / 2 + 0.9 + (i + 0.5) * (L - 1.8) / nWin;
+      add(box((L - 1.8) / nWin - 0.25, capH * 0.32, 0.06, glass, wx, ride + capH * 0.68, W / 2 + 0.01));
+      add(box((L - 1.8) / nWin - 0.25, capH * 0.32, 0.06, glass, wx, ride + capH * 0.68, -W / 2 - 0.01));
+    }
+    add(box(0.08, 0.6, 0.5, EGA.black, -L * 0.3, H + 0.1, -W * 0.2, { basic: true }));          // exhaust stack-ish
+    add(box(0.5, 0.25, 0.25, EGA.lred, L / 2 - 0.4, H + 0.12, W * 0.35, { basic: true }), box(0.5, 0.25, 0.25, EGA.lred, L / 2 - 0.4, H + 0.12, -W * 0.35, { basic: true }));
+    add(box(0.5, 0.25, 0.25, EGA.yellow, L / 2 - 1.0, H + 0.12, W * 0.35, { basic: true }), box(0.5, 0.25, 0.25, EGA.yellow, L / 2 - 1.0, H + 0.12, -W * 0.35, { basic: true }));
+    // the STOP arm
+    const stop = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), new THREE.MeshBasicMaterial({ map: textTexture('STOP', { bg: '#aa0000', fg: '#ffffff', w: 64, h: 64, size: 14 }), side: THREE.DoubleSide }));
+    stop.position.set(L * 0.1, ride + capH * 0.6, -W / 2 - 0.4); add(stop);
+    add(box(0.04, 0.04, 0.4, EGA.dgray, L * 0.1, ride + capH * 0.6, -W / 2 - 0.2));
   } else if (style === 'weenie') {
     const bun1 = box(L * 0.95, 0.55, 0.55, color, 0, ride + 0.4, W * 0.28);
     const bun2 = box(L * 0.95, 0.55, 0.55, color, 0, ride + 0.4, -W * 0.28);
@@ -164,17 +205,17 @@ export function buildCar(spec, color, accent = EGA.white) {
     if (style === 'limo') add(box(0.2, 0.2, 0.2, EGA.yellow, cabX + cabL / 2 - 0.3, H + 0.05, 0));
   }
   // lights and bumpers
-  const lightY = ride + (style === 'monster' ? 0.55 : 0.35);
+  const lightY = ride + (style === 'monster' ? 0.55 : style === 'bus' ? 0.9 : 0.35);
   add(box(0.08, 0.16, 0.3, EGA.yellow, L / 2 + 0.01, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.yellow, L / 2 + 0.01, lightY, -W * 0.32));
   add(box(0.08, 0.16, 0.3, EGA.lred, -L / 2 - 0.01, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.lred, -L / 2 - 0.01, lightY, -W * 0.32));
-  if (style !== 'monster' && style !== 'weenie') {
+  if (style !== 'monster' && style !== 'weenie' && style !== 'kart') {
     add(box(0.14, 0.16, W * 1.02, EGA.dgray, L / 2, ride + 0.08, 0), box(0.14, 0.16, W * 1.02, EGA.dgray, -L / 2, ride + 0.08, 0));
   }
 
   // wheels
   const ahead = spec.length / 2 - spec.rearOverhang;
   const rearX = -ahead, frontX = spec.wheelbase - ahead;
-  const wz = W / 2 - (style === 'monster' ? -0.05 : 0.12);
+  const wz = W / 2 - (style === 'monster' ? -0.05 : style === 'kart' ? 0.0 : 0.12);
   const wheels = [];
   for (const [x, z, front] of [[frontX, wz, true], [frontX, -wz, true], [rearX, -wz, false], [rearX, wz, false]]) {
     const pivot = new THREE.Group();
@@ -279,6 +320,25 @@ export function buildProp(type) {
       add(box(1.0, 0.2, 1.0, EGA.yellow, 0, 2.35, 0));
       break;
     }
+    case 'portaloo': {
+      add(box(1.1, 2.2, 1.1, EGA.lblue, 0, 1.1, 0));
+      add(box(1.15, 0.15, 1.15, EGA.blue, 0, 2.25, 0));
+      add(box(0.05, 1.7, 0.6, EGA.blue, 0.56, 1.0, 0));
+      add(box(0.06, 0.12, 0.3, EGA.lgreen, 0.58, 1.9, 0, { basic: true })); // "vacant". it lies.
+      break;
+    }
+    case 'statue': {
+      add(box(1.6, 1.0, 1.6, EGA.lgray, 0, 0.5, 0));
+      add(box(1.2, 0.8, 1.2, EGA.dgray, 0, 1.4, 0));
+      add(box(0.5, 1.4, 0.4, EGA.brown, 0, 2.5, 0));            // body
+      add(box(0.2, 1.0, 0.2, EGA.brown, 0, 1.9, 0.3), box(0.2, 1.0, 0.2, EGA.brown, 0, 1.9, -0.3)); // legs (sort of)
+      add(box(0.9, 0.2, 0.2, EGA.brown, 0.3, 3.1, 0));           // an arm, pointing at the future
+      add(box(0.4, 0.4, 0.4, EGA.brown, 0, 3.4, 0));             // head
+      add(box(0.5, 0.15, 0.5, EGA.brown, 0, 3.65, 0));           // hat
+      const plaque = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.5), new THREE.MeshBasicMaterial({ map: textTexture('THE MAYOR', { bg: '#555555', fg: '#ffff55', w: 128, h: 48, size: 14 }), side: THREE.DoubleSide }));
+      plaque.position.set(0, 1.4, 0.62); add(plaque);
+      break;
+    }
     default:
       add(box(0.5, 0.5, 0.5, EGA.lmagenta, 0, 0.25, 0));
   }
@@ -287,13 +347,14 @@ export function buildProp(type) {
 
 // ---------- street ----------
 
-export function buildStreet(level) {
+export function buildStreet(level, surface = 'dry') {
   const g = new THREE.Group();
+  const roadColor = surface === 'ice' ? EGA.lgray : EGA.dgray;
   const len = level.xMax - level.xMin + 60;
   const mid = (level.xMin + level.xMax) / 2;
 
   // road
-  const road = box(len, 0.1, CURB * 2, EGA.dgray, mid, -0.05, 0);
+  const road = box(len, 0.1, CURB * 2, roadColor, mid, -0.05, 0);
   road.castShadow = false;
   g.add(road);
   // centre line dashes and parking bay ticks
@@ -301,6 +362,17 @@ export function buildStreet(level) {
     const d = box(2, 0.02, 0.18, EGA.yellow, x, 0.01, 0, { basic: true });
     d.castShadow = false;
     g.add(d);
+  }
+  // ice patches / puddles
+  if (surface !== 'dry') {
+    const n = surface === 'ice' ? 60 : 28;
+    for (let i = 0; i < n; i++) {
+      const px = level.xMin - 10 + Math.random() * (level.xMax - level.xMin + 20);
+      const pz = (Math.random() - 0.5) * (CURB * 2 - 1.5);
+      const p = box(2 + Math.random() * 4, 0.015, 1 + Math.random() * 2, surface === 'ice' ? (Math.random() < 0.5 ? EGA.white : EGA.lcyan) : EGA.blue, px, 0.008, pz, { basic: true });
+      p.castShadow = false; p.receiveShadow = false;
+      g.add(p);
+    }
   }
   for (const dir of [1, -1]) {
     const edge = box(len, 0.02, 0.1, EGA.white, mid, 0.01, dir * (CURB - 2.5), { basic: true });
@@ -416,11 +488,15 @@ export function buildSpotMarker(spot, color = EGA.yellow) {
     [0.12, depth, spot.cx - len / 2, zc],
     [0.12, depth, spot.cx + len / 2, zc],
   ];
+  const lg = new THREE.Group();
   for (const [w, d, x, z] of lines) {
-    const m = box(w, 0.03, d, color, x, 0.02, z, { basic: true });
+    const m = box(w, 0.03, d, color, x - spot.cx, 0.02, z, { basic: true });
     m.castShadow = false;
-    g.add(m);
+    lg.add(m);
   }
+  lg.position.x = spot.cx;
+  g.add(lg);
+  g.userData.lines = lg;
   // A big bouncy "P" sign.
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6),
     new THREE.MeshBasicMaterial({ map: textTexture('P', { w: 64, h: 64, size: 40, bg: color === EGA.yellow ? '#0000aa' : '#aa0000', fg: '#ffffff' }), side: THREE.DoubleSide }));
@@ -431,3 +507,58 @@ export function buildSpotMarker(spot, color = EGA.yellow) {
 }
 
 export { LANE };
+
+
+// ---------- pedestrians ----------
+
+/** A blocky person. Returns { root, legs: [l, r], body } ; local +x is forward. */
+export function buildPed(p) {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const legL = box(0.22, 0.75, 0.22, p.pants, 0, 0.375, 0.14);
+  const legR = box(0.22, 0.75, 0.22, p.pants, 0, 0.375, -0.14);
+  // pivot legs at the hip so they swing
+  const hipL = new THREE.Group(); hipL.position.set(0, 0.75, 0.14); legL.position.set(0, -0.375, 0); hipL.add(legL);
+  const hipR = new THREE.Group(); hipR.position.set(0, 0.75, -0.14); legR.position.set(0, -0.375, 0); hipR.add(legR);
+  body.add(hipL, hipR);
+  body.add(box(0.36, 0.7, 0.56, p.shirt, 0, 1.1, 0));
+  body.add(box(0.14, 0.6, 0.14, p.shirt, 0, 1.15, 0.36), box(0.14, 0.6, 0.14, p.shirt, 0, 1.15, -0.36)); // arms
+  body.add(box(0.36, 0.36, 0.36, p.skin, 0, 1.65, 0));
+  body.add(box(0.1, 0.06, 0.06, EGA.white, 0.19, 1.7, 0.08), box(0.1, 0.06, 0.06, EGA.white, 0.19, 1.7, -0.08)); // eyes
+  if (p.hat) body.add(box(0.44, 0.12, 0.44, p.pants, 0.04, 1.86, 0), box(0.3, 0.2, 0.3, p.pants, 0, 1.98, 0));
+  // a phone, to be stared at in the middle of the road
+  body.add(box(0.08, 0.14, 0.1, EGA.black, 0.25, 1.3, 0.2));
+  root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return { root, body, hips: [hipL, hipR] };
+}
+
+// Night sky: dark bands with a scatter of stars.
+export function nightSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  const g = c.getContext('2d');
+  const bands = ['#000000', '#000000', '#0000aa', '#0000aa', '#0000aa', '#555555'];
+  bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 64, 128, 64 / bands.length + 1); });
+  g.fillStyle = '#ffffff';
+  for (let i = 0; i < 60; i++) g.fillRect(Math.floor(Math.random() * 128), Math.floor(Math.random() * 40), 1, 1);
+  g.fillStyle = '#ffff55';
+  g.fillRect(100, 8, 6, 6); g.fillRect(99, 9, 8, 4); // a moon, roughly
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// Grey sky for fog and rain.
+export function greySkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 64;
+  const g = c.getContext('2d');
+  const bands = ['#555555', '#555555', '#aaaaaa', '#aaaaaa', '#aaaaaa', '#ffffff'];
+  bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, (i / bands.length) * 64, 4, 64 / bands.length + 1); });
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

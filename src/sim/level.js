@@ -1,4 +1,5 @@
 import { NPC_CARS, NPC_COLORS } from './vehicles.js';
+import { surfaceGrip } from './mods.js';
 
 export const CURB = 6.5;          // |z| of the curb line
 export const SIDEWALK = 4.0;      // sidewalk depth
@@ -32,12 +33,14 @@ export const PROPS = {
   sawhorse: { hl: 0.2, hw: 1.0, breakSpeed: 0.8, value: 100, name: 'BARRIER' },
   fruit: { hl: 1.25, hw: 0.6, breakSpeed: 1.5, value: 900, name: 'FRUIT STAND' },
   booth: { hl: 0.5, hw: 0.5, breakSpeed: 3.0, value: 1200, name: 'PHONE BOOTH' },
+  portaloo: { hl: 0.6, hw: 0.6, breakSpeed: 1.6, value: 700, name: 'PORTABLE TOILET (OCCUPIED)' },
+  statue: { hl: 0.7, hw: 0.7, breakSpeed: 3.5, value: 9000, name: 'STATUE OF THE MAYOR' },
 };
 
 const SHOPS = [
   'DONUTS', 'DENTIST', 'LAWYER', 'PIZZA', 'BODY SHOP', 'INSURANCE', 'CHIROPRACTOR',
   'TACOS', 'VIDEO RENTAL', 'BAIL BONDS', 'GLASS REPAIR', 'DMV', 'ARCADE', 'BUMPER EMPORIUM',
-  'NECK BRACES', 'PAWN SHOP', 'LAUNDRY', 'CURB APPEAL REALTY',
+  'NECK BRACES', 'PAWN SHOP', 'LAUNDRY', 'CURB APPEAL REALTY', 'DRIVING SCHOOL', 'TOW TRUCKS',
 ];
 const BUILDING_COLORS = [0xaa5500, 0xaa00aa, 0x00aaaa, 0x5555ff, 0xaa0000, 0x00aa00, 0x555555, 0xff55ff];
 
@@ -57,89 +60,104 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 /**
  * Builds a level description (plain data, no physics or graphics).
  * mode: 'test' | 'race' | 'wreck'
+ * mods: array of modifier ids (see mods.js)
+ * margin: overrides the difficulty's spare room (used by the Valet Shift)
  */
-export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now() }) {
+export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin }) {
   const r = rng(seed);
   const diff = DIFFICULTIES.find((d) => d.id === difficulty) || DIFFICULTIES[1];
+  const modSet = new Set(mods);
+  const hidden = modSet.has('hidden') && mode === 'test';
   const xMin = mode === 'wreck' ? -120 : -70;
   const xMax = mode === 'wreck' ? 140 : 90;
   const level = {
-    mode, difficulty: diff, curbZ: CURB, xMin, xMax,
+    mode, difficulty: diff, curbZ: CURB, xMin, xMax, seed,
+    mods: modSet, grip: surfaceGrip(modSet),
     parked: [], props: [], buildings: [], walls: [], spots: [],
     playerStart: { x: -22, z: LANE, a: 0 },
     aiStart: null,
+    traffic: [], peds: 0,
   };
 
   const spotX = 15;
-  const spotLen = vehicle.length + diff.margin;
+  const spare = (margin ?? diff.margin) + (vehicle.extraRoom || 0);
+  const spotLen = vehicle.length + spare;
 
   const npc = () => {
     const t = pick(r, NPC_CARS);
     return { ...t, color: pick(r, NPC_COLORS) };
   };
 
-  // Lines parked cars along one curb. dir = +1 for the +z curb (traffic heading +x).
-  const lineCurb = (dir, spot) => {
+  // Lines parked cars along one curb, leaving the given gaps ({x, len, owner})
+  // exactly open. dir = +1 for the +z curb (traffic heading +x).
+  const lineCurb = (dir, gaps) => {
     const zc = dir * (CURB - PARK_GAP);
     const add = (c, cx) => {
       level.parked.push({ ...c, x: cx, z: zc - dir * c.width / 2, a: dir > 0 ? 0 : Math.PI });
       return level.parked.length - 1;
     };
     const lo = xMin + 8, hi = xMax - 8;
-    if (spot) {
-      // the two cars bounding the spot, then fill outwards
-      const a = npc(); const b = npc();
-      const sx0 = spotX - spotLen / 2, sx1 = spotX + spotLen / 2;
-      const upIdx = add(a, sx1 + a.length / 2);
-      const loIdx = add(b, sx0 - b.length / 2);
-      const upper = level.parked[upIdx], lower = level.parked[loIdx];
-      let x = upper.x + upper.length / 2;
+    const sorted = [...gaps].sort((a, b) => a.x - b.x);
+    // Segments of curb between gaps. The car on each side of a gap sits flush
+    // against it, so the gap is exactly as wide as advertised.
+    const segments = [];
+    let start = lo, prev = null;
+    for (const g of sorted) {
+      segments.push({ s0: start, s1: g.x - g.len / 2, before: prev, after: g });
+      start = g.x + g.len / 2;
+      prev = g;
+    }
+    segments.push({ s0: start, s1: hi, before: prev, after: null });
+    for (const seg of segments) {
+      let x0 = seg.s0, x1 = seg.s1;
+      if (seg.before) { const c = npc(); seg.before.hiIdx = add(c, x0 + c.length / 2); x0 += c.length; }
+      if (seg.after) { const c = npc(); seg.after.loIdx = add(c, x1 - c.length / 2); x1 -= c.length; }
+      let x = x0;
       while (true) {
         const c = npc();
-        x += 1.0 + r() * 1.6;
-        if (x + c.length > hi) break;
-        if (r() < 0.12) { x += 5 + r() * 3; continue; } // occasional decoy gap (too small, mostly)
-        add(c, x + c.length / 2); x += c.length;
+        // Normal spacing, or a decoy gap: tempting, but shorter than your car.
+        let gap = 0.9 + r() * 1.5;
+        if (mode === 'wreck') { if (r() < 0.25) gap = 6; } else if (r() < 0.14) gap = Math.max(1.6, vehicle.length - 0.5 - r() * 1.0);
+        if (x + gap + c.length > x1 - (seg.after ? 0.8 : 0)) break;
+        add(c, x + gap + c.length / 2);
+        x += gap + c.length;
       }
-      x = lower.x - lower.length / 2;
-      while (true) {
-        const c = npc();
-        x -= 1.0 + r() * 1.6;
-        if (x - c.length < lo) break;
-        if (r() < 0.12) { x -= 2 + r() * 1.5; continue; }
-        add(c, x - c.length / 2); x -= c.length;
-      }
+    }
+    for (const g of sorted) {
       level.spots.push({
-        dir, cx: spotX, cz: dir * CURB, length: spotLen,
-        frontCar: dir > 0 ? upIdx : loIdx, rearCar: dir > 0 ? loIdx : upIdx,
+        dir, cx: g.x, cz: dir * CURB, length: g.len, owner: g.owner,
+        frontCar: dir > 0 ? g.hiIdx : g.loIdx, rearCar: dir > 0 ? g.loIdx : g.hiIdx,
       });
-    } else {
-      let x = lo;
-      while (true) {
-        const c = npc();
-        x += 1.2 + r() * 2;
-        if (x + c.length > hi) break;
-        if (mode === 'wreck' && r() < 0.25) { x += 6; continue; }
-        add(c, x + c.length / 2); x += c.length;
-      }
     }
   };
 
   if (mode === 'test') {
-    lineCurb(1, true);
-    lineCurb(-1, false);
+    if (hidden) {
+      // Several unmarked gaps of different sizes; any of them counts.
+      const spares = [0.55, 0.9, 1.4, 2.1, 3.0].map((s) => s + (vehicle.extraRoom || 0));
+      for (let i = spares.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [spares[i], spares[j]] = [spares[j], spares[i]]; }
+      const gaps = spares.map((s, i) => ({ x: -30 + i * 24 + (r() - 0.5) * 5, len: vehicle.length + s, owner: 'player' }));
+      lineCurb(1, gaps);
+    } else {
+      lineCurb(1, [{ x: spotX, len: spotLen, owner: 'player' }]);
+    }
+    lineCurb(-1, []);
   } else if (mode === 'race') {
-    lineCurb(1, true);
-    lineCurb(-1, true);
-    level.spots[0].owner = 'player';
-    level.spots[1].owner = 'ai';
+    lineCurb(1, [{ x: spotX, len: spotLen, owner: 'player' }]);
+    lineCurb(-1, [{ x: spotX, len: spotLen, owner: 'ai' }]);
     level.aiStart = { x: spotX + (spotX - level.playerStart.x), z: -LANE, a: Math.PI };
   } else {
-    lineCurb(1, false);
-    lineCurb(-1, false);
+    lineCurb(1, []);
+    lineCurb(-1, []);
     level.playerStart = { x: xMin + 15, z: LANE, a: 0 };
   }
-  if (level.spots[0] && !level.spots[0].owner) level.spots[0].owner = 'player';
+  // The biggest spot is the "primary" one (used for the par and the marker).
+  level.spots.sort((a, b) => (a.owner === 'player' ? 0 : 1) - (b.owner === 'player' ? 0 : 1) || b.length - a.length);
+
+  // Moving hazards.
+  if (modSet.has('traffic')) level.traffic.push({ dir: -1, count: mode === 'wreck' ? 4 : 3, speed: mode === 'wreck' ? 7.5 : 6 });
+  if (mode === 'wreck') level.traffic.push({ dir: 1, count: 3, speed: 7 });
+  if (modSet.has('peds')) level.peds = mode === 'wreck' ? 14 : 7;
 
   // Sidewalk furniture on both sides.
   for (const dir of [1, -1]) {
@@ -155,7 +173,7 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     for (let x = xMin + 12; x < xMax - 6; x += 13) {
       level.props.push({ type: 'tree', x: x + r() * 3, z: zc + dir * 3.0, a: 0 });
     }
-    const furniture = ['hydrant', 'mailbox', 'trash', 'bench', 'newsbox', 'trash', 'booth', 'hydrant'];
+    const furniture = ['hydrant', 'mailbox', 'trash', 'bench', 'newsbox', 'trash', 'booth', 'hydrant', 'portaloo'];
     for (let x = xMin + 8; x < xMax - 8; x += 5 + r() * 5) {
       const type = pick(r, furniture);
       const z = type === 'bench' ? zc + dir * 2.2 : zc + dir * (1.5 + r() * 1.0);
@@ -181,8 +199,10 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
       const dir = k % 2 ? 1 : -1;
       level.props.push({ type: 'fruit', x: xMin + 50 + k * 50, z: dir * (CURB + 2.0), a: 0 });
     }
+    // The mayor, immortalised in bronze, in the middle of a roundabout-ish plaza.
+    level.props.push({ type: 'statue', x: xMin + 130, z: 0, a: 0 });
   } else {
-    // Cones politely marking the spot, plus roadworks near the end.
+    // Roadworks near the end.
     level.props.push({ type: 'sawhorse', x: xMax - 14, z: LANE, a: 0 });
     level.props.push({ type: 'sawhorse', x: xMax - 14, z: -LANE, a: 0 });
   }
