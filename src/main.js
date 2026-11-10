@@ -10,7 +10,8 @@ import { Tutorial } from './tutorial.js';
 import { MODS, RANDOM_POOL, modNames } from './sim/mods.js';
 import { CAREER, careerUnlocked, careerStars, starsFor, FIRST_CLEAR_BONUS, STAR_BONUS } from './sim/career.js';
 import { TROPHIES, TROPHY_POINTS, checkTrophies } from './sim/achievements.js';
-import { pollPads } from './gamepad.js';
+import { pollPads, setLayouts, hasLayout, rumble, setRumble, stopRumble } from './gamepad.js';
+import { PadSetup } from './padsetup.js';
 import { setLook, cssHex } from './render/looks.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,8 @@ const screen = $('screen');
 const hud = $('hud');
 
 const save = loadSave();
+setLayouts(save.padLayouts);
+setRumble(save.rumble);
 const audio = new Audio();
 audio.setMuted(save.muted);
 let view;
@@ -45,9 +48,12 @@ window.addEventListener('gamepadconnected', (e) => {
   const gp = e.gamepad;
   const el = document.createElement('div');
   el.className = 'pad-toast';
-  el.textContent = `CONTROLLER CONNECTED: ${gp.id}${gp.mapping === 'standard' ? '' : ' (NON-STANDARD LAYOUT, BEST GUESS)'}`;
+  const known = gp.mapping === 'standard' || hasLayout(gp.id);
+  el.textContent = `CONTROLLER CONNECTED: ${gp.id}${known ? '' : ' (NON-STANDARD LAYOUT: RUN CONTROLLER SETUP FROM THE MENU)'}`;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 5000);
+  // An unknown layout on the title screen: go straight to setup.
+  if (!known && game.state === 'menu') renderPadSetup();
 });
 window.addEventListener('blur', () => keys.clear());
 window.addEventListener('pointerdown', () => audio.unlock());
@@ -70,6 +76,7 @@ function readInput(dt) {
 // Controllers: analog values feed readInput, button presses join the keyboard's.
 function pollController() {
   const s = game.state;
+  if (s === 'padsetup') { pad = { throttle: 0, steer: 0, handbrake: false, codes: [] }; return; }
   pad = pollPads(s === 'play' || s === 'countdown' ? 'drive' : s === 'paused' ? 'paused' : 'menu');
   for (const c of pad.codes) pressed.set(c, (pressed.get(c) || 0) + 1);
   if (pad.active) { audio.unlock(); usingPad = true; }
@@ -100,6 +107,7 @@ const MENU = [
   { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides. Paint them badly.' },
   { id: 'trophies', name: 'TROPHIES', desc: 'Achievements. Each one is worth points and smugness.' },
   { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, hazards, and a short lecture.' },
+  { id: 'pad', name: 'CONTROLLER SETUP', desc: 'Teach the game your controller: press each button when asked. Pick your own horn button.' },
 ];
 const FREE = [
   { id: 'test', name: 'DRIVING TEST', desc: 'Park between two cars. Get graded by a deeply judgemental instructor.' },
@@ -211,7 +219,7 @@ function renderMenu() {
       </ul>
       <div class="menu-desc" id="menu-desc"></div>
       <div class="row"><span>RIDE: <span class="k">${v.name}</span></span><span>POINTS: <span class="k">${save.points}</span></span></div>
-      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P CLASSIC COLOURS<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
+      <div class="hint">W/S + ENTER TO PICK &bull; M MUTE &bull; P CLASSIC COLOURS &bull; V RUMBLE<br><span style="color:var(--dgray)">BUILD ${__BUILD__}</span></div>
     </div>`);
   bindList('#menu li', (i) => { game.menuSel = i; highlightMenu(); }, () => menuSelect());
   highlightMenu();
@@ -252,6 +260,7 @@ function menuSelect() {
   const m = MENU[game.menuSel];
   if (m.id === 'garage') renderGarage();
   else if (m.id === 'howto') renderHowTo();
+  else if (m.id === 'pad') renderPadSetup();
   else if (m.id === 'free') renderFree();
   else if (m.id === 'career') renderCareer();
   else if (m.id === 'trophies') renderTrophies();
@@ -542,7 +551,8 @@ function renderHowTo() {
       <div><span class="k">ENTER</span> CASH OUT EARLY (WRECK MODE)</div>
       <div><span class="k">I</span> LET THE INSTRUCTOR PARK (DRIVING TEST, NO POINTS)</div>
       <div><span class="k">CONTROLLER</span> RT OR RIGHT STICK GAS, LT BRAKE/REVERSE, LEFT STICK STEER,
-        RB HANDBRAKE, X CAMERA, Y HORN, LB INSTRUCTOR, START PAUSE</div>
+        RB HANDBRAKE, X CAMERA, Y HORN, LB INSTRUCTOR, START PAUSE.
+        BUTTONS IN THE WRONG PLACE? RUN CONTROLLER SETUP FROM THE MENU. V TURNS RUMBLE ON/OFF</div>
       <p style="color:var(--lgray);font-size:9px;line-height:2">
         NO GEARS TO FIDDLE WITH: STOP, THEN HOLD S TO GO BACKWARD. EACH TIME YOU SWITCH
         DIRECTION IT COUNTS AS A MOVE. BEAT THE INSTRUCTOR'S PAR FOR FULL MARKS.<br><br>
@@ -554,6 +564,31 @@ function renderHowTo() {
       </p>
       <div class="hint">ESC OR ENTER TO GO BACK</div>
     </div>`);
+}
+
+function toastRumble() {
+  const el = document.createElement('div');
+  el.className = 'pad-toast';
+  el.textContent = `CONTROLLER RUMBLE ${save.rumble ? 'ON' : 'OFF'} (V)`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+  if (save.rumble) rumble(0.6, 0.4, 200);
+}
+
+// ---- controller setup ----
+let padSetup = null;
+function renderPadSetup() {
+  game.state = 'padsetup';
+  padSetup = new PadSetup(screen, (id, layout) => {
+    padSetup = null;
+    if (id && layout) {
+      save.padLayouts = { ...save.padLayouts, [id]: layout };
+      writeSave(save);
+      setLayouts(save.padLayouts);
+      audio.select();
+    }
+    renderMenu();
+  });
 }
 
 // ---------------- gameplay ----------------
@@ -783,26 +818,32 @@ function handleEvents(events) {
   const w = game.world;
   const run = game.run;
   const test = run.simMode === 'test' && run.kind !== 'tutorial' && run.kind !== 'shift';
+  // Rumble only for things the player feels (and only when on a controller).
+  const buzz = (strong, weak, ms) => { if (usingPad) rumble(strong, weak, ms); };
+  const hitBuzz = (impact) => buzz(0.15 + impact * 0.09, 0.25 + impact * 0.06, 80 + Math.min(300, impact * 40));
   for (const e of events) {
     view.handle(e);
     if (e.type === 'ding') {
+      if (e.car.isPlayer || (e.otherCar && e.otherCar.isPlayer)) hitBuzz(e.impact);
       if (e.car.isPlayer || e.impact > 1) audio.crash(e.impact);
       if (e.car.isPlayer && e.otherCar && e.otherCar.isTraffic) audio.honk();
       if (e.car.isPlayer && test && e.impact > 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.ding)}`);
     } else if (e.type === 'break') {
       audio.crash(3);
+      if (e.by && e.by.isPlayer) hitBuzz(Math.max(2, e.impact || 0));
       if (e.prop.type === 'meter') audio.coin();
       if (e.prop.type === 'statue') { audio.boom(); game.slow = Math.max(game.slow, 0.8); }
       if (test && e.by && e.by.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.prop)}`);
-    } else if (e.type === 'wreck') { audio.boom(); game.slow = Math.max(game.slow, 0.5); }
-    else if (e.type === 'smash' || e.type === 'facade') audio.smash();
-    else if (e.type === 'collapse') { audio.boom(); audio.smash(); game.slow = Math.max(game.slow, 0.9); }
+    } else if (e.type === 'wreck') { audio.boom(); game.slow = Math.max(game.slow, 0.5); buzz(1, 0.8, 450); }
+    else if (e.type === 'smash' || e.type === 'facade') { audio.smash(); buzz(0.6, 0.6, 200); }
+    else if (e.type === 'collapse') { audio.boom(); audio.smash(); game.slow = Math.max(game.slow, 0.9); buzz(1, 1, 900); }
     else if (e.type === 'curb' && e.car.isPlayer) {
       audio.curb();
+      buzz(0.35, 0.1, 90);
       if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.curb)}`);
     } else if (e.type === 'parked') {
       audio.jingle(e.car.isPlayer);
-      if (e.car.isPlayer) game.slow = Math.max(game.slow, 1.1);
+      if (e.car.isPlayer) { game.slow = Math.max(game.slow, 1.1); buzz(0, 0.5, 120); }
     } else if (e.type === 'honk') {
       audio.honk();
       if (test && Math.random() < 0.5) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.honk)}`, 2.5);
@@ -811,6 +852,7 @@ function handleEvents(events) {
       if (test && e.car.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.scare)}`, 2.5);
     } else if (e.type === 'quake') {
       audio.rumble(e.duration);
+      buzz(0.5, 0.2, Math.min(5000, e.duration * 1000));
       if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.quake)}`, 2.5);
     } else if (e.type === 'creep') {
       audio.tone(900, 0.08, 'square', 0.04); audio.tone(900, 0.08, 'square', 0.04, 0.4);
@@ -819,9 +861,11 @@ function handleEvents(events) {
       audio.tone(600 + e.combo * 60, 0.08, 'square', 0.07); audio.tone(900 + e.combo * 60, 0.12, 'square', 0.07, 0.08);
     } else if (e.type === 'land' && e.car.isPlayer) {
       audio.crash(Math.min(6, 1 + e.impact * 0.5));
+      hitBuzz(Math.min(8, 1 + e.impact * 0.7));
     } else if (e.type === 'flip' && e.car.isPlayer) {
       audio.crash(8);
       audio.boom();
+      buzz(1, 1, 600);
     }
   }
   if (view.takeThunder()) audio.thunder();
@@ -1092,6 +1136,7 @@ function awardTrophies(r) {
 
 function endWith(fn, secs = 1.6) {
   game.state = 'ending';
+  stopRumble();
   game.endT = secs;
   game.endFn = fn;
 }
@@ -1119,6 +1164,7 @@ function renderResults(r) {
 }
 
 function renderPause() {
+  stopRumble();
   game.state = 'paused';
   showScreen(`
     <div class="window" style="max-width:420px;text-align:center">
@@ -1144,6 +1190,7 @@ function handleKeys() {
   const times = (c) => pressed.get(c) || 0;
   const nav = (list, sel, fwd, back) => (sel + list.length * 4 + times(fwd[0]) + times(fwd[1]) - times(back[0]) - times(back[1])) % list.length;
   if (hit('KeyM')) { save.muted = !save.muted; audio.setMuted(save.muted); writeSave(save); }
+  if (hit('KeyV')) { save.rumble = !save.rumble; setRumble(save.rumble); writeSave(save); toastRumble(); }
   if (hit('KeyP')) { save.look = save.look === 'classic' ? 'modern' : 'classic'; setLook(save.look); writeSave(save); recolorSwatches(); }
 
   switch (game.state) {
@@ -1205,6 +1252,10 @@ function handleKeys() {
     case 'howto':
       if (hit('Escape') || hit('Enter')) renderMenu();
       break;
+    case 'padsetup':
+      if (hit('Space')) { padSetup.skip(); audio.blip(); }
+      else if (hit('Escape')) padSetup.cancel();
+      break;
     case 'countdown':
     case 'play': {
       const run = game.run;
@@ -1215,7 +1266,7 @@ function handleKeys() {
       }
       if (hit('Space') && game.tutorial) game.tutorial.handbrake = true;
       if (run.kind === 'tutorial' && hit('Enter')) { finishTutorial(true); break; }
-      if (hit('KeyH')) { audio.horn(game.world.player.spec.style); game.world.honk(); }
+      if (hit('KeyH')) { audio.horn(game.world.player.spec.style); game.world.honk(); if (usingPad) rumble(0, 0.3, 150); }
       if (game.state === 'play' && run.simMode === 'wreck' && hit('Enter')) { audio.nitro(false); finishWreck(false); }
       if (game.state === 'play' && (run.kind === 'test' || run.kind === 'tutorial') && hit('KeyI') && !game.autopilot) {
         const w = game.world;
@@ -1260,6 +1311,7 @@ function step(now) {
   last = now;
   pollController();
   handleKeys();
+  if (game.state === 'padsetup' && padSetup) padSetup.update(rawDt);
 
   const w = game.world;
   if (game.bubbleT > 0) { game.bubbleT -= rawDt; if (game.bubbleT <= 0) $('bubble').classList.add('hidden'); }

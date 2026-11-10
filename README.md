@@ -46,6 +46,17 @@ Xbox-style controllers work in the browser (tested layout: 8BitDo Ultimate 2.4G
 in X-input mode; a Steam Controller works with Steam running, which presents it
 as an Xbox pad). Press any button once so the browser notices it.
 
+Some controllers (8BitDo pads in D-input or Switch mode, many off-brand pads)
+show up with a "non-standard" layout, where each model numbers its buttons and
+sticks differently. For those, **Controller Setup** (main menu; it also opens
+by itself when such a pad connects on the title screen) asks you to press each
+control in turn, including which button you want for the horn, and remembers
+the layout for that controller.
+
+Controllers rumble on bumps, curbs, crashes, landings, earthquakes and a
+successful park (Chrome and Edge; Firefox has no rumble support). Press V to
+turn it off or on.
+
 | Button | Driving | Menus |
 | --- | --- | --- |
 | RT / right stick up | Gas (analog) | |

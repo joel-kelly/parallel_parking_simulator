@@ -12,6 +12,7 @@ const DEFAULTS = () => ({
   wins: 0,
   look: 'modern',   // 'modern' or 'classic' (P key)
   muted: false,
+  rumble: true,      // controller vibration (V key)
   paint: {},         // vehicle id -> { color, accent }
   tutorialSeen: false,
   tutorialDone: false,
@@ -24,6 +25,7 @@ const DEFAULTS = () => ({
   honks: 0,
   topSpeed: 0,       // km/h
   parks: 0,
+  padLayouts: {},    // controller id -> layout from Controller Setup
 });
 
 export function loadSave() {
