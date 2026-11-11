@@ -73,13 +73,57 @@ export const NPC_CARS = [
 
 export const NPC_COLORS = [0x5555ff, 0xff5555, 0x55ff55, 0xff55ff, 0x55ffff, 0xaaaaaa, 0xffaa00, 0x0000aa];
 
+// ---- Secret lunch-box fleet (type GOLDBUG on the main menu) ----
+// Purely a costume: `look` swaps the model, everything about how the car
+// drives (and its id, for scores and paint) stays the same.
+const FOOD_SKINS = {
+  bean: { look: 'apple', name: 'APPLE CAR', height: 2.1, color: 0xff5555, accent: 0x55ff55,
+    blurb: 'One a day keeps the tow truck away. Mind the worm.' },
+  za: { look: 'cheese', name: 'THE BIG CHEESE', height: 2.0, color: 0xffff55, accent: 0xffaa00,
+    blurb: 'A wedge on wheels. Aerodynamic. Aromatic.' },
+  kart: { look: 'egg', name: 'THE GOOD EGG', height: 1.3, color: 0xffffff, accent: 0xffff55,
+    blurb: 'Small, quick, and one bad corner from an omelette.' },
+  scoop: { look: 'pickle', name: 'DILL WITH IT', height: 1.9, color: 0x00aa00, accent: 0x55ff55,
+    blurb: 'A pickle truck. Crunchy on the outside. Also on the inside.' },
+  monster: { look: 'pumpkin', name: 'PUMPKIN POUNDER', color: 0xff8800, accent: 0x00aa00,
+    blurb: 'Enormous gourd, enormous wheels. Turns back into a coach at midnight.' },
+  limo: { look: 'pencil', name: 'NO. 2 PENCIL', color: 0xffff55, accent: 0xff55ff,
+    blurb: 'Seven metres of sharpened ambition. Not food. Do not chew.' },
+  weenie: { look: 'banana', name: 'TOP BANANA', height: 2.0, color: 0xffff55, accent: 0xaa5500,
+    blurb: 'A banana car. Extremely a-peeling. Do not slip.' },
+  bus: { look: 'carrot', name: '24 CARROT', height: 2.4, color: 0xff8800, accent: 0x00aa00,
+    blurb: 'Nine metres of root vegetable. Great for your eyesight. Terrible for everyone else\'s.' },
+};
+export const FOOD_VEHICLES = VEHICLES.map((v) => ({ ...v, ...FOOD_SKINS[v.id] }));
+
+const FOOD_NPC = [
+  { look: 'apple', height: 1.8, color: 0xff5555, accent: 0x55ff55 },
+  { look: 'carrot', height: 1.6, color: 0xff8800, accent: 0x00aa00 },
+  { look: 'pickle', height: 1.6, color: 0x00aa00, accent: 0x55ff55 },
+  { look: 'banana', height: 1.8, color: 0xffff55, accent: 0xaa5500 },
+  { look: 'apple', height: 1.8, color: 0x55ff55, accent: 0x00aa00 },
+  { look: 'cheese', height: 1.7, color: 0xffaa00, accent: 0xaa5500 },
+  { look: 'egg', height: 1.6, color: 0xffffff, accent: 0xffff55 },
+  { look: 'pencil', height: 1.4, color: 0x5555ff, accent: 0xff55ff },
+  { look: 'pumpkin', height: 1.8, color: 0xff8800, accent: 0x00aa00 },
+];
+// Dresses a parked or traffic car as the n-th piece of food.
+export function foodNpc(car, n) {
+  return { ...car, ...FOOD_NPC[(n * 4) % FOOD_NPC.length] };
+}
+
 export function vehicleById(id) {
   return VEHICLES.find((v) => v.id === id) || VEHICLES[0];
 }
 
 // A drivable spec for a traffic car, based on one of the parked-car shapes.
-export function trafficSpec(rand) {
+let trafficN = 0;
+export function trafficSpec(rand, food = false) {
   const t = NPC_CARS[Math.floor(rand() * NPC_CARS.length)];
+  const base = trafficBase(t, rand);
+  return food ? foodNpc(base, trafficN++) : base;
+}
+function trafficBase(t, rand) {
   return {
     ...t, id: 'npc', name: 'SOME GUY', color: NPC_COLORS[Math.floor(rand() * NPC_COLORS.length)], accent: 0xffffff,
     wheelbase: t.length * 0.62, rearOverhang: t.length * 0.19,

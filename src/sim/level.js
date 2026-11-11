@@ -1,4 +1,4 @@
-import { NPC_CARS, NPC_COLORS } from './vehicles.js';
+import { NPC_CARS, NPC_COLORS, foodNpc } from './vehicles.js';
 import { surfaceGrip } from './mods.js';
 
 export const CURB = 6.5;          // |z| of the curb line
@@ -80,10 +80,11 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
  * mode: 'test' | 'race' | 'wreck'
  * mods: array of modifier ids (see mods.js)
  * margin: overrides the difficulty's spare room (used by the Valet Shift)
+ * food: every parked and traffic car is dressed as food (the secret mode)
  * leftHand: traffic keeps left, New Zealand style, so the player's curb is on
  * their left (-z) instead of their right
  */
-export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin, leftHand = false }) {
+export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin, leftHand = false, food = false }) {
   const r = rng(seed);
   const diff = DIFFICULTIES.find((d) => d.id === difficulty) || DIFFICULTIES[1];
   const modSet = new Set(mods);
@@ -92,7 +93,7 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
   const xMax = mode === 'wreck' ? 140 : 90;
   const hand = leftHand ? -1 : 1; // which side of the car the curb is on
   const level = {
-    mode, difficulty: diff, curbZ: CURB, xMin, xMax, seed, leftHand, hand,
+    mode, difficulty: diff, curbZ: CURB, xMin, xMax, seed, leftHand, hand, food,
     mods: modSet, grip: surfaceGrip(modSet),
     parked: [], props: [], buildings: [], walls: [], spots: [],
     playerStart: { x: -22, z: hand * LANE, a: 0 },
@@ -104,9 +105,11 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
   const spare = (margin ?? diff.margin) + (vehicle.extraRoom || 0);
   const spotLen = vehicle.length + spare;
 
+  let npcN = 0;
   const npc = () => {
     const t = pick(r, NPC_CARS);
-    return { ...t, color: pick(r, NPC_COLORS) };
+    const car = { ...t, color: pick(r, NPC_COLORS) };
+    return food ? foodNpc(car, npcN++) : car;
   };
 
   // Lines parked cars along one curb, leaving the given gaps ({x, len, owner})

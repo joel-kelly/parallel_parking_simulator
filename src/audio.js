@@ -97,6 +97,9 @@ export class Audio {
     } else if (style === 'weenie') { // awooga
       this.tone(300, 0.35, 'sawtooth', 0.12, 0, 250);
       this.tone(550, 0.35, 'sawtooth', 0.12, 0.38, -250);
+    } else if (style === 'food') { // clown horn
+      this.tone(330, 0.12, 'square', 0.12, 0, 180);
+      this.tone(330, 0.2, 'square', 0.12, 0.16, 180);
     } else if (style === 'monster') {
       this.tone(110, 0.5, 'sawtooth', 0.18); this.tone(147, 0.5, 'sawtooth', 0.12);
     } else if (style === 'bus') { // air horn

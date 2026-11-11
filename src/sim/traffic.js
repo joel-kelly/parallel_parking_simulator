@@ -19,7 +19,7 @@ export class Traffic {
       const hi = lane.xMax ?? lv.xMax;
       const span = hi - lv.xMin - 16;
       for (let i = 0; i < lane.count; i++) {
-        const spec = trafficSpec(world.rand);
+        const spec = trafficSpec(world.rand, lv.food);
         const x = lv.xMin + 8 + (i + 0.5) * span / lane.count + (world.rand() - 0.5) * 6;
         const car = makeCar(spec, { x, z: lane.dir * lv.hand * LANE, a: lane.dir > 0 ? 0 : Math.PI }, 'car');
         initAir(car);

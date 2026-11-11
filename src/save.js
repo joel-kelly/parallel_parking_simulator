@@ -15,6 +15,7 @@ const DEFAULTS = () => ({
   rumble: true,      // controller vibration (V key)
   paint: {},         // vehicle id -> { color, accent }
   tutorialSeen: false,
+  goldbug: false,    // secret mode: everybody drives food (type GOLDBUG on the menu)
   kiwi: false,       // New Zealand mode: keep left, park on the left
   tutorialDone: false,
   career: {},        // level id -> stars (0-3)

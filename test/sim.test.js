@@ -6,7 +6,7 @@
 //     change how the car drives switched on);
 //  3. traffic and pedestrians run for a while without anyone exploding.
 import { buildLevel, DIFFICULTIES, rng } from '../src/sim/level.js';
-import { VEHICLES, vehicleById } from '../src/sim/vehicles.js';
+import { VEHICLES, FOOD_VEHICLES, vehicleById } from '../src/sim/vehicles.js';
 import { World } from '../src/sim/world.js';
 import { AIDriver, AI_PROFILES, planPark } from '../src/sim/ai.js';
 import { CAREER } from '../src/sim/career.js';
@@ -20,10 +20,11 @@ const fmt = (c, d) => `parked=${c.parked} moves=${c.moves}/${d.plan_.moves} t=${
   (c.lastEval ? `curb=${c.lastEval.curbDist.toFixed(2)} ang=${c.lastEval.angle.toFixed(1)} fg=${c.lastEval.frontGap.toFixed(2)} rg=${c.lastEval.rearGap.toFixed(2)}` : '');
 
 // 1. Every vehicle, every difficulty, a few seeds.
-for (const veh of VEHICLES) {
+//    (the secret food fleet parks among food, to be sure the costumes change nothing)
+for (const veh of [...VEHICLES, ...FOOD_VEHICLES]) {
   for (const diff of DIFFICULTIES) {
     for (const [seed, leftHand] of [[1, false], [2, false], [3, false], [1, true], [2, true], [3, true]]) {
-      const level = buildLevel({ mode: 'race', difficulty: diff.id, vehicle: veh, seed, leftHand });
+      const level = buildLevel({ mode: 'race', difficulty: diff.id, vehicle: veh, seed, leftHand, food: !!veh.look });
       if (leftHand && !(level.playerStart.z < 0 && level.spots[0].cz < 0 && level.spots[0].dir > 0)) fail('keep-left level should put the player and their spot on the left (-z) curb');
       const world = new World(level, veh, { aiSpec: veh, aiProfile: AI_PROFILES[diff.id], rand: rng(seed) });
       const pd = new AIDriver(world, world.player, world.playerSpot, AI_PROFILES.insane, rng(seed + 9));

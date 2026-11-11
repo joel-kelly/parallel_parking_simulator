@@ -3,7 +3,7 @@ import { Audio } from './audio.js';
 import { loadSave, writeSave, todayKey } from './save.js';
 import { World } from './sim/world.js';
 import { buildLevel, DIFFICULTIES, rng, CURB } from './sim/level.js';
-import { VEHICLES, vehicleById, NITRO_MAX } from './sim/vehicles.js';
+import { VEHICLES, FOOD_VEHICLES, NITRO_MAX } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
 import { Tutorial } from './tutorial.js';
@@ -41,6 +41,7 @@ window.addEventListener('keydown', (e) => {
   usingPad = false;
   if (GAME_KEYS.includes(e.code)) e.preventDefault();
   if (!e.repeat) pressed.set(e.code, (pressed.get(e.code) || 0) + 1);
+  if (!e.repeat) typeSecret(e.key);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -218,7 +219,7 @@ function renderMenu() {
   game.state = 'menu';
   game.pendingRun = null;
   hud.classList.add('hidden');
-  const v = vehicleById(save.vehicle);
+  const v = veh(save.vehicle);
   const total = CAREER.length * 3;
   const tag = (m) => {
     if (m.id === 'career') return `<span class="tag">${careerStars(save)}/${total} &#9733;</span>`;
@@ -232,6 +233,7 @@ function renderMenu() {
     <div class="window">
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
       <div class="tagline slogan" id="slogan">${SLOGANS[sloganIdx]}</div>
+      ${save.goldbug ? '<div class="tagline new">GOLDBUG MODE: EVERYBODY DRIVES THEIR LUNCH. ALL RIDES FREE.</div>' : ''}
       ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MENU.map((m, i) => `<li data-i="${i}">${m.name}${tag(m)}</li>`).join('')}
@@ -270,7 +272,7 @@ function highlightMenu() {
   if (m.id === 'daily') {
     const c = dailyConfig();
     const best = save.daily[c.dailyKey];
-    d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${vehicleById(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
+    d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${veh(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
   } else if (m.id === 'kiwi' && save.kiwi) d.textContent = 'Kia ora! The street is flipped: keep LEFT, park on the LEFT. Sheep have right of way.';
   else d.textContent = m.desc;
 }
@@ -283,10 +285,32 @@ function toggleKiwi() {
   if (save.kiwi) audio.baa();
 }
 
+// ---- the secret mode ----
+// Type the code on the main menu (again to switch it off): every car in the
+// game, parked cars, traffic and rivals included, is dressed as food, and
+// every ride is free. The code avoids the menu's own keys (W, S, M, P, V).
+const SECRET = 'GOLDBUG';
+let typed = '';
+function typeSecret(key) {
+  if (game.state !== 'menu' || key.length !== 1) { typed = ''; return; }
+  typed = (typed + key.toUpperCase()).slice(-SECRET.length);
+  if (typed !== SECRET) return;
+  typed = '';
+  save.goldbug = !save.goldbug;
+  // Back in the real world you only drive what you own.
+  if (!owns(veh(save.vehicle))) save.vehicle = VEHICLES[0].id;
+  writeSave(save);
+  audio.jingle(true);
+  loadBackdrop();
+  renderMenu();
+}
+const fleet = () => (save.goldbug ? FOOD_VEHICLES : VEHICLES);
+const veh = (id) => fleet().find((v) => v.id === id) || fleet()[0];
+
 // A scenic street behind the menus, with a bit of life in it.
 function loadBackdrop() {
-  const vehicle = vehicleById(save.vehicle);
-  const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7, mods: ['traffic', 'peds'], leftHand: save.kiwi });
+  const vehicle = veh(save.vehicle);
+  const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7, mods: ['traffic', 'peds'], leftHand: save.kiwi, food: save.goldbug });
   game.world = new World(level, vehicle, { rand: rng(7) });
   view.load(game.world);
 }
@@ -400,7 +424,7 @@ function highlightCareer() {
   if (!careerUnlocked(save, game.careerSel)) { d.innerHTML = 'LOCKED. EARN A STAR ON THE LEVEL BEFORE IT.'; return; }
   const diff = DIFFICULTIES.find((x) => x.id === l.diff);
   const bits = [`${l.mode === 'race' ? 'RACE VS ' + AI_PROFILES[l.diff].name : 'DRIVING TEST'} &bull; ${diff.name} SPOT`];
-  if (l.vehicle) bits.push(`<span class="car">COMPANY CAR: ${vehicleById(l.vehicle).name}</span>`);
+  if (l.vehicle) bits.push(`<span class="car">COMPANY CAR: ${veh(l.vehicle).name}</span>`);
   if (l.time) bits.push(`<span class="car">${l.time} SECOND LIMIT</span>`);
   if (l.mods.length) bits.push(`<span class="mods">${l.mods.map((m) => MODS[m].name).join(' + ')}</span>`);
   d.innerHTML = `<span style="color:var(--white)">${l.blurb}</span><br>${bits.join('<br>')}<br><span style="color:var(--dgray)">${l.mode === 'race' ? 'STARS: WIN / NO DINGS / UNDER 45S' : 'STARS: PARK / SCORE 650 / SCORE 850'}</span>`;
@@ -434,7 +458,7 @@ function dailyConfig() {
   const key = todayKey();
   const seed = parseInt(key.replace(/-/g, ''), 10);
   const r = rng(seed);
-  const vehicle = VEHICLES[Math.floor(r() * VEHICLES.length)];
+  const vehicle = fleet()[Math.floor(r() * fleet().length)];
   const diff = ['normal', 'normal', 'hard', 'hard', 'insane'][Math.floor(r() * 5)];
   const pool = [...RANDOM_POOL];
   const mods = [];
@@ -448,34 +472,37 @@ function dailyConfig() {
 // ---- garage ----
 let garageSel = 0;
 const hex = cssHex;
-const owns = (v) => v.cost === 0 || save.unlocked.includes(v.id);
+// In the secret mode nothing costs anything.
+const owns = (v) => save.goldbug || v.cost === 0 || save.unlocked.includes(v.id);
+// Food costumes get their own paint jobs.
+const paintKey = (v) => (v.look ? `food:${v.id}` : v.id);
 
 // A vehicle spec with the player's paint job applied.
 function paintedSpec(v) {
-  const p = save.paint[v.id] || {};
+  const p = save.paint[paintKey(v)] || {};
   return { ...v, color: p.color ?? v.color, accent: p.accent ?? v.accent };
 }
 
 function renderGarage(msg = '') {
   game.state = 'garage';
-  garageSel = Math.max(0, VEHICLES.findIndex((v) => v.id === save.vehicle));
+  garageSel = Math.max(0, fleet().findIndex((v) => v.id === save.vehicle));
   drawGarage(msg);
 }
 function drawGarage(msg = '') {
   const scroll = screen.querySelector('.window')?.scrollTop || 0;
   showScreen(`
     <div class="window side">
-      <h2>THE GARAGE</h2>
+      <h2>${save.goldbug ? 'THE PANTRY' : 'THE GARAGE'}</h2>
       <div class="row" style="max-width:none;margin:0 0 12px"><span>POINTS: <span class="k">${save.points}</span></span><span class="good">${msg}</span></div>
       <div class="garage">
-        ${VEHICLES.map((v, i) => {
+        ${fleet().map((v, i) => {
           const owned = owns(v);
           const ps = paintedSpec(v);
           const cls = ['car-card', i === garageSel ? 'sel' : '', owned ? '' : 'locked'].join(' ');
           const best = DIFFICULTIES.map((d) => save.best[`${v.id}:${d.id}`]).filter(Boolean);
           let price;
           if (save.vehicle === v.id) price = '<span class="good">&#9654; DRIVING</span>';
-          else if (owned) price = v.cost === 0 && !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
+          else if (owned) price = !save.unlocked.includes(v.id) ? '<span class="good">FREE! TAKE IT</span>' : 'OWNED';
           else price = save.points >= v.cost ? `<span class="k">BUY: ${v.cost} PTS</span>` : `<span class="bad">${v.cost} PTS</span>`;
           return `<div class="${cls}" data-i="${i}">
             <div class="name"><span class="swatch" data-c="${ps.color}" style="background:${hex(ps.color)}"></span>${v.name}</div>
@@ -494,15 +521,15 @@ function drawGarage(msg = '') {
     el.addEventListener('mouseenter', () => { garageSel = +el.dataset.i; setSel('.car-card', garageSel); });
     el.addEventListener('click', (e) => {
       garageSel = +el.dataset.i;
-      if (e.target.closest('[data-paint]')) renderPaint(VEHICLES[garageSel]);
+      if (e.target.closest('[data-paint]')) renderPaint(fleet()[garageSel]);
       else garageAction();
     });
   });
 }
 function garageAction() {
-  const v = VEHICLES[garageSel];
+  const v = fleet()[garageSel];
   if (owns(v)) {
-    if (!save.unlocked.includes(v.id)) save.unlocked.push(v.id);
+    if (v.cost === 0 && !save.unlocked.includes(v.id)) save.unlocked.push(v.id);
     save.vehicle = v.id; writeSave(save); audio.select(); drawGarage(`${v.name} SELECTED`);
   } else if (save.points >= v.cost) {
     save.points -= v.cost; save.unlocked.push(v.id); save.vehicle = v.id; writeSave(save);
@@ -556,8 +583,7 @@ function renderPaint(v) {
 }
 
 function applyPaint() {
-  const id = paint.veh.id;
-  save.paint[id] = { color: PALETTE[paint.idx[0]][0], accent: PALETTE[paint.idx[1]][0] };
+  save.paint[paintKey(paint.veh)] = { color: PALETTE[paint.idx[0]][0], accent: PALETTE[paint.idx[1]][0] };
   writeSave(save);
   audio.blip();
   drawPaint();
@@ -650,11 +676,11 @@ function startRun(cfg) {
   const tutorial = cfg.kind === 'tutorial';
   const simMode = cfg.simMode || (cfg.kind === 'race' || cfg.kind === 'wreck' ? cfg.kind : 'test');
   const diff = tutorial ? DIFFICULTIES[0] : (DIFFICULTIES.find((d) => d.id === cfg.diff) || diffObj());
-  const baseVehicle = vehicleById(cfg.vehicle || save.vehicle);
+  const baseVehicle = veh(cfg.vehicle || save.vehicle);
   const vehicle = paintedSpec(baseVehicle);
   const mods = cfg.mods || [];
   const seed = cfg.seed ?? (tutorial ? 11 : Math.floor(Math.random() * 1e9));
-  const level = buildLevel({ mode: simMode, difficulty: diff.id, vehicle, seed, mods, margin: cfg.margin, leftHand: save.kiwi });
+  const level = buildLevel({ mode: simMode, difficulty: diff.id, vehicle, seed, mods, margin: cfg.margin, leftHand: save.kiwi, food: save.goldbug });
   const opts = { rand: rng(seed + 1) };
   if (simMode === 'race') {
     opts.aiSpec = baseVehicle;
@@ -727,7 +753,7 @@ function startShift() {
 }
 function shiftRoundConfig(sh) {
   const r = rng(sh.seed + sh.round * 101);
-  const vehicle = VEHICLES[Math.floor(r() * VEHICLES.length)];
+  const vehicle = fleet()[Math.floor(r() * fleet().length)];
   let margin = Math.max(1.15, 2.8 - 0.12 * (sh.round - 1));
   const time = Math.max(25, Math.round(62 - 2.5 * (sh.round - 1)));
   const nMods = sh.round >= 10 ? 3 : sh.round >= 6 ? 2 : sh.round >= 3 ? 1 : 0;
@@ -737,7 +763,7 @@ function shiftRoundConfig(sh) {
   const seed = sh.seed * 13 + sh.round;
   // Make sure the spot is actually parkable in this car: widen until the planner finds a way.
   for (let k = 0; k < 6; k++) {
-    const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed, margin, leftHand: save.kiwi });
+    const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed, margin, leftHand: save.kiwi, food: save.goldbug });
     const world = new World(level, vehicle, { rand: rng(seed) });
     if (planPark(world, world.playerSpot, vehicle)) break;
     margin += 0.2;
@@ -1160,7 +1186,7 @@ function awardPoints(n) {
   const before = save.points;
   save.points += n;
   save.totalEarned += n;
-  game.newlyAffordable = VEHICLES.filter((v) => !save.unlocked.includes(v.id) && v.cost > before && v.cost <= save.points);
+  game.newlyAffordable = save.goldbug ? [] : VEHICLES.filter((v) => !save.unlocked.includes(v.id) && v.cost > before && v.cost <= save.points);
 }
 
 // Checks trophies after a run (or in the garage); pays out and toasts the new ones.
@@ -1266,14 +1292,14 @@ function handleKeys() {
     case 'garage': {
       const cols = Math.max(1, Math.round((screen.querySelector('.garage')?.clientWidth || 600) / 212));
       let moved = false;
-      if (hit('KeyA') || hit('ArrowLeft')) { garageSel = (garageSel + VEHICLES.length - 1) % VEHICLES.length; moved = true; }
-      if (hit('KeyD') || hit('ArrowRight')) { garageSel = (garageSel + 1) % VEHICLES.length; moved = true; }
+      if (hit('KeyA') || hit('ArrowLeft')) { garageSel = (garageSel + fleet().length - 1) % fleet().length; moved = true; }
+      if (hit('KeyD') || hit('ArrowRight')) { garageSel = (garageSel + 1) % fleet().length; moved = true; }
       if (hit('KeyW') || hit('ArrowUp')) { garageSel = Math.max(0, garageSel - cols); moved = true; }
-      if (hit('KeyS') || hit('ArrowDown')) { garageSel = Math.min(VEHICLES.length - 1, garageSel + cols); moved = true; }
+      if (hit('KeyS') || hit('ArrowDown')) { garageSel = Math.min(fleet().length - 1, garageSel + cols); moved = true; }
       if (moved) { audio.blip(); setSel('.car-card', garageSel); }
       if (hit('Enter') || hit('Space')) garageAction();
       if (hit('KeyC')) {
-        if (owns(VEHICLES[garageSel])) renderPaint(VEHICLES[garageSel]);
+        if (owns(fleet()[garageSel])) renderPaint(fleet()[garageSel]);
         else { audio.tone(110, 0.2, 'square', 0.1); drawGarage('BUY IT BEFORE YOU PAINT IT'); }
       }
       if (hit('Escape')) renderMenu();
@@ -1285,13 +1311,13 @@ function handleKeys() {
       if (hit('KeyD') || hit('ArrowRight')) { paint.idx[paint.row] = (paint.idx[paint.row] + 1) % n; applyPaint(); }
       if (hit('KeyW') || hit('ArrowUp') || hit('KeyS') || hit('ArrowDown')) { paint.row = 1 - paint.row; audio.blip(); drawPaint(); }
       if (hit('KeyR')) {
-        delete save.paint[paint.veh.id]; writeSave(save);
+        delete save.paint[paintKey(paint.veh)]; writeSave(save);
         renderPaint(paint.veh);
       }
       if (hit('Enter') || hit('Escape')) {
         const v = paint.veh;
         renderGarage();
-        garageSel = VEHICLES.indexOf(v);
+        garageSel = fleet().findIndex((x) => x.id === v.id);
         setSel('.car-card', garageSel);
       }
       break;
@@ -1313,7 +1339,7 @@ function handleKeys() {
       }
       if (hit('Space') && game.tutorial) game.tutorial.handbrake = true;
       if (run.kind === 'tutorial' && hit('Enter')) { finishTutorial(true); break; }
-      if (hit('KeyH')) { audio.horn(game.world.player.spec.style); game.world.honk(); if (usingPad) rumble(0, 0.3, 150); }
+      if (hit('KeyH')) { audio.horn(game.world.player.spec.look ? 'food' : game.world.player.spec.style); game.world.honk(); if (usingPad) rumble(0, 0.3, 150); }
       if (game.state === 'play' && run.simMode === 'wreck' && hit('Enter')) { audio.nitro(false); finishWreck(false); }
       if (game.state === 'play' && (run.kind === 'test' || run.kind === 'tutorial') && hit('KeyI') && !game.autopilot) {
         const w = game.world;
@@ -1438,7 +1464,7 @@ function step(now) {
       if (game.endT <= 0) { game.sirenT = 0; game.endFn(); }
     }
   } else if (game.state === 'garage' || game.state === 'paint') {
-    const v = game.state === 'paint' ? paint.veh : VEHICLES[garageSel];
+    const v = game.state === 'paint' ? paint.veh : fleet()[garageSel];
     const ps = paintedSpec(v);
     view.renderShowcase(rawDt, ps, ps.color, ps.accent, window.innerWidth >= 900);
   } else if (game.state !== 'paused') {

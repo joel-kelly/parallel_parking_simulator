@@ -138,7 +138,7 @@ export class View {
     }
 
     this.parkedViews = world.parked.map((p) => {
-      const v = buildCar({ ...p.info, wheelbase: p.info.length * 0.62, rearOverhang: p.info.length * 0.19, wheelRadius: 0.32 }, p.info.color, EGA.white);
+      const v = buildCar({ ...p.info, wheelbase: p.info.length * 0.62, rearOverhang: p.info.length * 0.19, wheelRadius: 0.32 }, p.info.color, p.info.accent ?? EGA.white);
       v.root.position.set(p.body.x, 0, p.body.z);
       v.root.rotation.y = -p.body.a;
       scene.add(v.root);
@@ -549,7 +549,7 @@ export class View {
       this.show = { scene, table, cam: new THREE.PerspectiveCamera(38, 1, 0.3, 200), key: '', car: null, angle: 0.6 };
     }
     const S = this.show;
-    const key = `${spec.id}:${color}:${accent}`;
+    const key = `${spec.id}:${spec.look}:${color}:${accent}`;
     if (key !== S.key) {
       if (S.car) S.table.remove(S.car);
       const v = buildCar(spec, color, accent);

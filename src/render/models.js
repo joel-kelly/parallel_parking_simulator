@@ -106,6 +106,149 @@ function wheel(r, color = EGA.black) {
   return g;
 }
 
+// ---------- the secret lunch-box fleet ----------
+// Cars shaped like food. Each builder fills roughly the L x W footprint.
+
+function blob(rx, ry, rz, color, x, y, z, seg = 10) {
+  const m = sphere(1, color, seg);
+  m.scale.set(rx, ry, rz);
+  m.position.set(x, y, z);
+  return m;
+}
+
+// A cylinder lying along the car (rTop at the front).
+function log(rFront, rBack, len, color, x, y, z, seg = 8) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rFront, rBack, len, seg).rotateZ(-Math.PI / 2), mat(color));
+  m.position.set(x, y, z);
+  return m;
+}
+
+// The undercarriage every food car sits on, and a little open cockpit.
+function chassis({ add, L, W, ride }) {
+  add(box(L * 0.92, 0.22, W * 0.8, EGA.dgray, 0, ride, 0));
+}
+function cockpit({ add, W, glass }, x, y, w = W * 0.5) {
+  add(box(0.7, 0.3, w, EGA.black, x - 0.3, y, 0));
+  add(box(0.06, 0.4, w, glass, x + 0.08, y + 0.2, 0));
+  add(box(0.12, 0.3, 0.3, EGA.dgray, x - 0.2, y + 0.2, 0)); // steering column
+}
+
+const FOOD = {
+  egg(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const ry = (H - ride) / 2 + 0.1;
+    add(blob(L * 0.4, ry, W * 0.5, color, -L * 0.06, ride + ry, 0));       // fat end
+    add(blob(L * 0.34, ry * 0.8, W * 0.42, color, L * 0.14, ride + ry * 0.85, 0)); // pointy end
+    add(box(L * 0.3, 0.07, W * 0.3, accent, -L * 0.1, ride + ry * 2 - 0.02, 0)); // sunny side up
+    cockpit(c, L * 0.05, ride + ry * 2 - 0.05, W * 0.4);
+  },
+  apple(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const ry = (H - ride) / 2;
+    add(blob(L * 0.42, ry, W * 0.5, color, 0, ride + ry, 0));
+    add(blob(0.22, 0.06, 0.22, EGA.brown, -L * 0.08, H - 0.01, 0)); // dimple
+    const stem = box(0.12, 0.5, 0.12, EGA.brown, -L * 0.08, H + 0.2, 0);
+    stem.rotation.z = 0.25;
+    const leaf = box(0.6, 0.06, 0.3, accent, -L * 0.08 - 0.35, H + 0.35, 0.1);
+    leaf.rotation.z = -0.4;
+    add(stem, leaf);
+    cockpit(c, L * 0.2, H - 0.22);
+  },
+  banana(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    // five segments along a curve, tips in the air
+    const n = 5, seg = L * 0.9 / n, th = 0.8, lift = (H - ride - th) / 4;
+    for (let i = 0; i < n; i++) {
+      const t = i - (n - 1) / 2;
+      const b = box(seg + 0.22, th, W * (Math.abs(t) > 1.5 ? 0.5 : 0.72), color, t * seg, ride + th / 2 + lift * t * t * 0.9, 0);
+      b.rotation.z = Math.atan(2 * lift * t / seg) * 0.9;
+      add(b);
+    }
+    const tipY = H - 0.3;
+    const stalk = box(0.4, 0.3, 0.3, accent, L * 0.47, tipY, 0); stalk.rotation.z = 0.8;
+    const nub = box(0.25, 0.25, 0.25, accent, -L * 0.47, tipY, 0); nub.rotation.z = -0.8;
+    add(stalk, nub);
+    cockpit(c, 0.3, ride + th - 0.05, W * 0.45);
+  },
+  pickle(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const rad = Math.min(W * 0.45, (H - ride) / 2);
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(rad, L * 0.95 - rad * 2, 4, 8).rotateZ(Math.PI / 2), mat(color));
+    body.position.set(0, ride + rad, 0);
+    add(body);
+    for (let i = 0; i < 12; i++) { // warts
+      const a = (i * 2.4) % (Math.PI * 1.2) - Math.PI * 0.1;
+      const x = -L * 0.34 + (i * 0.37 % 1) * L * 0.68;
+      add(box(0.18, 0.18, 0.18, accent, x, ride + rad + Math.sin(a) * rad * 0.97, Math.cos(a) * rad * 0.97));
+    }
+    cockpit(c, L * 0.18, ride + rad * 2 - 0.12, W * 0.42);
+  },
+  carrot(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const rad = Math.min(W * 0.46, (H - ride) / 2);
+    add(log(0.12, rad, L * 0.86, color, L * 0.05, ride + rad, 0, 8));
+    add(blob(0.3, rad, rad, color, -L * 0.38, ride + rad, 0, 8));
+    for (let i = 0; i < 3; i++) add(box(0.5, 0.05, W * 0.5, EGA.brown, -L * 0.2 + i * L * 0.2, ride + rad * (1.86 - i * 0.42), 0)); // rings
+    for (const [dz, tilt] of [[0, 0.5], [0.3, 0.9], [-0.3, 0.2]]) { // leafy top, out the back
+      const leaf = box(1.0, 0.14, 0.22, accent, -L * 0.47, ride + rad + 0.45 + Math.abs(dz), dz);
+      leaf.rotation.z = -tilt;
+      add(leaf);
+    }
+    cockpit(c, -L * 0.12, ride + rad * 1.8, W * 0.4);
+  },
+  cheese(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const h = H - ride, l = L * 0.96;
+    const shape = new THREE.Shape([new THREE.Vector2(-l / 2, 0), new THREE.Vector2(l / 2, 0), new THREE.Vector2(l / 2, h * 0.3), new THREE.Vector2(-l / 2, h)]);
+    const wedge = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: W, bevelEnabled: false }).translate(0, 0, -W / 2), mat(color));
+    wedge.position.y = ride;
+    add(wedge);
+    add(box(0.08, h * 0.98, W * 1.01, accent, -l / 2, ride + h / 2, 0)); // rind
+    for (const [x, y, rr] of [[-0.32, 0.55, 0.26], [-0.1, 0.25, 0.16], [0.12, 0.3, 0.2], [-0.4, 0.2, 0.12], [0.33, 0.14, 0.1]]) { // holes
+      for (const side of [1, -1]) {
+        const hole = new THREE.Mesh(new THREE.CylinderGeometry(rr, rr, 0.06, 8).rotateX(Math.PI / 2), mat(accent));
+        hole.position.set(x * l, ride + y * h, side * W / 2);
+        add(hole);
+      }
+    }
+    cockpit(c, L * 0.12, ride + h * 0.58, W * 0.5);
+  },
+  pumpkin(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    add(box(L * 0.8, 0.25, 0.3, EGA.dgray, 0, ride - 0.1, 0));
+    add(box(L * 0.8, 0.2, W * 0.7, EGA.dgray, 0, ride + 0.05, 0));
+    const ry = (H - ride - 0.1) / 2, y = ride + 0.1 + ry;
+    for (const dz of [-0.24, 0, 0.24]) add(blob(L * (dz ? 0.37 : 0.4), ry * (dz ? 0.94 : 1), W * 0.22, color, 0, y, dz * W, 10)); // ribs
+    add(blob(L * 0.36, ry * 0.9, W * 0.4, color, 0, y, 0, 10));
+    const stem = box(0.3, 0.45, 0.3, accent, 0, H + 0.12, 0);
+    stem.rotation.z = -0.2;
+    add(stem);
+    add(box(0.5, 0.06, 0.22, accent, 0.3, H + 0.02, 0.2));
+    // a carved grin facing forward
+    const fx = L * 0.37;
+    add(box(0.2, 0.26, 0.26, EGA.yellow, fx, y + ry * 0.28, W * 0.15, { basic: true }), box(0.2, 0.26, 0.26, EGA.yellow, fx, y + ry * 0.28, -W * 0.15, { basic: true }));
+    add(box(0.2, 0.16, W * 0.36, EGA.yellow, fx + 0.03, y - ry * 0.22, 0, { basic: true }));
+  },
+  pencil(c) {
+    const { add, L, W, H, ride, color, accent } = c;
+    chassis(c);
+    const rad = Math.min(W * 0.36, (H - ride) / 2), y = ride + rad;
+    const squash = (m) => { m.scale.z = (W * 0.42) / rad; return m; };
+    add(squash(log(rad, rad, L * 0.62, color, -L * 0.03, y, 0, 6)));       // barrel
+    add(squash(log(rad * 0.3, rad, L * 0.14, 0xffaa55, L * 0.35, y, 0, 6))); // sharpened wood
+    add(squash(log(0.02, rad * 0.3, L * 0.05, EGA.black, L * 0.445, y, 0, 6))); // lead
+    add(squash(log(rad * 1.04, rad * 1.04, L * 0.06, EGA.lgray, -L * 0.37, y, 0, 6))); // ferrule
+    add(squash(log(rad * 0.95, rad * 0.95, L * 0.08, accent, -L * 0.44, y, 0, 6)));    // eraser
+    cockpit(c, L * 0.12, y + rad * 0.82, W * 0.4);
+  },
+};
+
 /**
  * Builds a car. Local +x is forward, +z is right. Returns
  * { root, body, wheels: [{pivot, wheel, front}], panels }
@@ -115,13 +258,16 @@ export function buildCar(spec, color, accent = EGA.white) {
   const body = new THREE.Group(); // tilts for suspension / curb hops
   root.add(body);
   const L = spec.length, W = spec.width, H = spec.height;
-  const style = spec.style;
+  const style = spec.look || spec.style;
+  const food = FOOD[style];
   const r = spec.wheelRadius || 0.32;
-  const ride = style === 'monster' ? r * 1.2 : r + 0.05;
+  const ride = spec.style === 'monster' ? r * 1.2 : r + 0.05;
   const glass = EGA.lcyan;
   const add = (...m) => { m.forEach((x) => body.add(x)); };
 
-  if (style === 'monster') {
+  if (food) {
+    food({ add, L, W, H, r, ride, color, accent, glass });
+  } else if (style === 'monster') {
     add(box(L * 0.95, 0.7, W * 0.8, color, 0, ride + 0.5, 0));
     add(box(L * 0.45, 0.65, W * 0.72, color, -0.1, ride + 1.17, 0));
     add(box(0.05, 0.45, W * 0.6, glass, L * 0.125, ride + 1.2, 0));
@@ -226,17 +372,19 @@ export function buildCar(spec, color, accent = EGA.white) {
     if (style === 'limo') add(box(0.2, 0.2, 0.2, EGA.yellow, cabX + cabL / 2 - 0.3, H + 0.05, 0));
   }
   // lights and bumpers
-  const lightY = ride + (style === 'monster' ? 0.55 : style === 'bus' ? 0.9 : 0.35);
-  add(box(0.08, 0.16, 0.3, EGA.yellow, L / 2 + 0.01, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.yellow, L / 2 + 0.01, lightY, -W * 0.32));
-  add(box(0.08, 0.16, 0.3, EGA.lred, -L / 2 - 0.01, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.lred, -L / 2 - 0.01, lightY, -W * 0.32));
-  if (style !== 'monster' && style !== 'weenie' && style !== 'kart') {
+  // (food cars carry their lights on the chassis, tucked under the produce)
+  const lightY = ride + (food ? 0.02 : style === 'monster' ? 0.55 : style === 'bus' ? 0.9 : 0.35);
+  const lightX = food ? L * 0.46 : L / 2 + 0.01;
+  add(box(0.08, 0.16, 0.3, EGA.yellow, lightX, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.yellow, lightX, lightY, -W * 0.32));
+  add(box(0.08, 0.16, 0.3, EGA.lred, -lightX, lightY, W * 0.32), box(0.08, 0.16, 0.3, EGA.lred, -lightX, lightY, -W * 0.32));
+  if (style !== 'monster' && style !== 'weenie' && style !== 'kart' && !food) {
     add(box(0.14, 0.16, W * 1.02, EGA.dgray, L / 2, ride + 0.08, 0), box(0.14, 0.16, W * 1.02, EGA.dgray, -L / 2, ride + 0.08, 0));
   }
 
   // wheels
   const ahead = spec.length / 2 - spec.rearOverhang;
   const rearX = -ahead, frontX = spec.wheelbase - ahead;
-  const wz = W / 2 - (style === 'monster' ? -0.05 : style === 'kart' ? 0.0 : 0.12);
+  const wz = W / 2 - (spec.style === 'monster' ? -0.05 : spec.style === 'kart' ? 0.0 : 0.12);
   const wheels = [];
   for (const [x, z, front] of [[frontX, wz, true], [frontX, -wz, true], [rearX, -wz, false], [rearX, wz, false]]) {
     const pivot = new THREE.Group();
