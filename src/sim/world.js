@@ -287,7 +287,7 @@ export class World {
           car.dings++;
           car.damage += impact * impact * 4 + impact * 6;
           const otherOwner = this.bodyOwner.get(other) || {};
-          this.emit({ type: 'ding', car, impact, x: c.px, z: c.pz, other, otherCar: otherOwner.car || null });
+          this.emit({ type: 'ding', car, impact, x: c.px, z: c.pz, other, otherCar: otherOwner.car || null, prop: otherOwner.prop || null });
         }
         car.lastHit.set(other, this.time);
       }

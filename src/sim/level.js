@@ -38,6 +38,8 @@ export const PROPS = {
   booth: { hl: 0.5, hw: 0.5, h: 2.4, breakSpeed: 3.0, value: 1200, name: 'PHONE BOOTH' },
   portaloo: { hl: 0.6, hw: 0.6, h: 2.3, breakSpeed: 1.6, value: 700, name: 'PORTABLE TOILET (OCCUPIED)' },
   statue: { hl: 0.7, hw: 0.7, h: 3.7, breakSpeed: 3.5, value: 9000, name: 'STATUE OF THE MAYOR' },
+  // New Zealand mode only. Sheep cannot be broken. Sheep have right of way.
+  sheep: { hl: 0.45, hw: 0.25, h: 1.0, breakSpeed: Infinity, value: 0, name: 'SHEEP' },
 };
 
 const SHOPS = [
@@ -49,6 +51,14 @@ const SHOPS = [
   'SECOND GEAR THRIFT', 'TIGHT SPOT YOGA', 'CRUMPLE ZONE CAKES', 'PARALLEL UNIVERSE COMICS',
   'SMALL CLAIMS SUSHI', 'HONK IF HUNGRY DINER', 'BACK IN 5 MINUTES', 'METER MAID MANICURES',
   'FENDER BENDER BURGERS', 'HEAD ON HAIR SALON', 'TAILGATE TAILORS', 'PANIC STATIONS ARCADE',
+];
+const KIWI_SHOPS = [
+  'SWEET AS DAIRY', 'JANDAL BARN', 'YEAH NAH BAKERY', 'FUSH & CHUPS', 'CHILLY BIN WORLD',
+  'PAVLOVA: OURS, NOT AUSSIE', 'SECOND BREAKFAST CAFE', "SHE'LL BE RIGHT REPAIRS",
+  'KEEP LEFT OPTICIANS', 'GUMBOOT EMPORIUM', 'MINCE & CHEESE PIES', 'TOGS TOGS UNDIES',
+  'THE WOOL SHED', 'HOKEY POKEY SCOOPS', 'NO. 8 WIRE HARDWARE', 'CHOICE BRO BARBERS',
+  'LONG BLACK, FLAT WHITE', 'BUNGY & SONS INSURANCE', 'WOP WOPS TRAVEL', 'KIWI (NOT THE FRUIT)',
+  'WRONG SIDE DRIVING SCHOOL', 'EWE TURN TYRES', 'BAA BAA BLACK CAB', 'TIKI TOUR MAPS',
 ];
 const BUILDING_COLORS = [0xaa5500, 0xaa00aa, 0x00aaaa, 0x5555ff, 0xaa0000, 0x00aa00, 0x555555, 0xff55ff];
 
@@ -70,19 +80,22 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
  * mode: 'test' | 'race' | 'wreck'
  * mods: array of modifier ids (see mods.js)
  * margin: overrides the difficulty's spare room (used by the Valet Shift)
+ * leftHand: traffic keeps left, New Zealand style, so the player's curb is on
+ * their left (-z) instead of their right
  */
-export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin }) {
+export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin, leftHand = false }) {
   const r = rng(seed);
   const diff = DIFFICULTIES.find((d) => d.id === difficulty) || DIFFICULTIES[1];
   const modSet = new Set(mods);
   const hidden = modSet.has('hidden') && mode === 'test';
   const xMin = mode === 'wreck' ? -120 : -70;
   const xMax = mode === 'wreck' ? 140 : 90;
+  const hand = leftHand ? -1 : 1; // which side of the car the curb is on
   const level = {
-    mode, difficulty: diff, curbZ: CURB, xMin, xMax, seed,
+    mode, difficulty: diff, curbZ: CURB, xMin, xMax, seed, leftHand, hand,
     mods: modSet, grip: surfaceGrip(modSet),
     parked: [], props: [], buildings: [], walls: [], spots: [],
-    playerStart: { x: -22, z: LANE, a: 0 },
+    playerStart: { x: -22, z: hand * LANE, a: 0 },
     aiStart: null,
     traffic: [], peds: 0,
   };
@@ -97,11 +110,13 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
   };
 
   // Lines parked cars along one curb, leaving the given gaps ({x, len, owner})
-  // exactly open. dir = +1 for the +z curb (traffic heading +x).
+  // exactly open. dir = +1 for the +z curb. Traffic on that side heads +x when
+  // keeping right, -x when keeping left.
   const lineCurb = (dir, gaps) => {
     const zc = dir * (CURB - PARK_GAP);
+    const flow = dir * hand;
     const add = (c, cx) => {
-      level.parked.push({ ...c, x: cx, z: zc - dir * c.width / 2, a: dir > 0 ? 0 : Math.PI });
+      level.parked.push({ ...c, x: cx, z: zc - dir * c.width / 2, a: flow > 0 ? 0 : Math.PI });
       return level.parked.length - 1;
     };
     const lo = xMin + 8, hi = xMax - 8;
@@ -133,8 +148,8 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     }
     for (const g of sorted) {
       level.spots.push({
-        dir, cx: g.x, cz: dir * CURB, length: g.len, owner: g.owner,
-        frontCar: dir > 0 ? g.hiIdx : g.loIdx, rearCar: dir > 0 ? g.loIdx : g.hiIdx,
+        dir: flow, hand, cx: g.x, cz: dir * CURB, length: g.len, owner: g.owner,
+        frontCar: flow > 0 ? g.hiIdx : g.loIdx, rearCar: flow > 0 ? g.loIdx : g.hiIdx,
       });
     }
   };
@@ -145,19 +160,19 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
       const spares = [0.55, 0.9, 1.4, 2.1, 3.0].map((s) => s + (vehicle.extraRoom || 0));
       for (let i = spares.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [spares[i], spares[j]] = [spares[j], spares[i]]; }
       const gaps = spares.map((s, i) => ({ x: -30 + i * 24 + (r() - 0.5) * 5, len: vehicle.length + s, owner: 'player' }));
-      lineCurb(1, gaps);
+      lineCurb(hand, gaps);
     } else {
-      lineCurb(1, [{ x: spotX, len: spotLen, owner: 'player' }]);
+      lineCurb(hand, [{ x: spotX, len: spotLen, owner: 'player' }]);
     }
-    lineCurb(-1, []);
+    lineCurb(-hand, []);
   } else if (mode === 'race') {
-    lineCurb(1, [{ x: spotX, len: spotLen, owner: 'player' }]);
-    lineCurb(-1, [{ x: spotX, len: spotLen, owner: 'ai' }]);
-    level.aiStart = { x: spotX + (spotX - level.playerStart.x), z: -LANE, a: Math.PI };
+    lineCurb(hand, [{ x: spotX, len: spotLen, owner: 'player' }]);
+    lineCurb(-hand, [{ x: spotX, len: spotLen, owner: 'ai' }]);
+    level.aiStart = { x: spotX + (spotX - level.playerStart.x), z: -hand * LANE, a: Math.PI };
   } else {
     lineCurb(1, []);
     lineCurb(-1, []);
-    level.playerStart = { x: xMin + 15, z: LANE, a: 0 };
+    level.playerStart = { x: xMin + 15, z: hand * LANE, a: 0 };
   }
   // The biggest spot is the "primary" one (used for the par and the marker).
   level.spots.sort((a, b) => (a.owner === 'player' ? 0 : 1) - (b.owner === 'player' ? 0 : 1) || b.length - a.length);
@@ -178,6 +193,7 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
       level.props.push({ type: 'tree', x: x + r() * 3, z: zc + dir * 3.0, a: 0 });
     }
     const furniture = ['hydrant', 'mailbox', 'trash', 'bench', 'newsbox', 'trash', 'booth', 'hydrant', 'portaloo'];
+    if (leftHand) furniture.push('sheep', 'sheep', 'sheep');
     for (let x = xMin + 8; x < xMax - 8; x += 5 + r() * 5) {
       const type = pick(r, furniture);
       const z = type === 'bench' ? zc + dir * 2.2 : zc + dir * (1.5 + r() * 1.0);
@@ -202,6 +218,10 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     for (let k = 0; k < 4; k++) {
       const dir = k % 2 ? 1 : -1;
       level.props.push({ type: 'fruit', x: xMin + 50 + k * 50, z: dir * (CURB + 2.0), a: 0 });
+    }
+    // A flock on the road past the jump (clear of the traffic, which would queue behind it forever).
+    if (leftHand) {
+      for (let k = 0; k < 7; k++) level.props.push({ type: 'sheep', x: xMax - 22 + k * 1.7 + r(), z: (r() - 0.5) * 9, a: r() * 6 });
     }
     // The jump: a ramp across both lanes near the far end, run-up cleared.
     const ramp = { ...RAMP, x0: xMax - 58 };
@@ -244,7 +264,7 @@ export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.n
     while (x < xMax + 10) {
       const w = 8 + Math.floor(r() * 3) * 3;
       level.buildings.push({
-        x0: x, x1: x + w, dir, name: pick(r, SHOPS),
+        x0: x, x1: x + w, dir, name: pick(r, leftHand ? KIWI_SHOPS : SHOPS),
         color: pick(r, BUILDING_COLORS), height: 6 + Math.floor(r() * 4) * 2.5,
       });
       x += w;

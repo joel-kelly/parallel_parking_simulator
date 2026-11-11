@@ -1,4 +1,5 @@
-// Traffic: NPC cars that cruise along a lane, brake for anything in the way,
+// Traffic: NPC cars that cruise along a lane (lane.dir is the direction of
+// travel; which side of the road that puts them on depends on level.hand), brake for anything in the way,
 // honk at you when you're the thing in the way, and loop around off-screen.
 import { makeCar, trafficSpec, driveCar } from './vehicles.js';
 import { LANE, CURB } from './level.js';
@@ -20,7 +21,7 @@ export class Traffic {
       for (let i = 0; i < lane.count; i++) {
         const spec = trafficSpec(world.rand);
         const x = lv.xMin + 8 + (i + 0.5) * span / lane.count + (world.rand() - 0.5) * 6;
-        const car = makeCar(spec, { x, z: lane.dir * LANE, a: lane.dir > 0 ? 0 : Math.PI }, 'car');
+        const car = makeCar(spec, { x, z: lane.dir * lv.hand * LANE, a: lane.dir > 0 ? 0 : Math.PI }, 'car');
         initAir(car);
         car.isTraffic = true;
         car.lane = lane;
@@ -60,7 +61,7 @@ export class Traffic {
   spawn(c) {
     const lv = this.world.level, b = c.body, dir = c.lane.dir;
     b.x = dir > 0 ? lv.xMin + 6 : (c.lane.xMax ?? lv.xMax) - 6;
-    b.z = dir * LANE;
+    b.z = dir * lv.hand * LANE;
     b.a = dir > 0 ? 0 : Math.PI;
     b.vx = b.vz = b.w = 0;
     c.steer = 0;
@@ -86,7 +87,7 @@ export class Traffic {
 
   drive(c, dt) {
     const b = c.body, dir = c.lane.dir;
-    const laneA = dir > 0 ? 0 : Math.PI, laneZ = dir * LANE;
+    const laneA = dir > 0 ? 0 : Math.PI, laneZ = dir * this.world.level.hand * LANE;
     const ea = wrapAngle(laneA - b.a);
     const off = (b.z - laneZ) * dir; // > 0: right of the lane centre
     const steer = clamp(-0.5 * off + 1.8 * ea, -1, 1);

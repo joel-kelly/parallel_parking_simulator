@@ -1,5 +1,6 @@
 // Headless checks that the game is fair:
-//  1. the AI can parallel park every vehicle at every difficulty
+//  1. the AI can parallel park every vehicle at every difficulty, keeping
+//     right and keeping left (New Zealand mode)
 //     (if the AI can do it, the spot is physically possible for a human too);
 //  2. every Career level has a parkable spot (with the hazards that don't
 //     change how the car drives switched on);
@@ -21,8 +22,9 @@ const fmt = (c, d) => `parked=${c.parked} moves=${c.moves}/${d.plan_.moves} t=${
 // 1. Every vehicle, every difficulty, a few seeds.
 for (const veh of VEHICLES) {
   for (const diff of DIFFICULTIES) {
-    for (const seed of [1, 2, 3]) {
-      const level = buildLevel({ mode: 'race', difficulty: diff.id, vehicle: veh, seed });
+    for (const [seed, leftHand] of [[1, false], [2, false], [3, false], [1, true], [2, true], [3, true]]) {
+      const level = buildLevel({ mode: 'race', difficulty: diff.id, vehicle: veh, seed, leftHand });
+      if (leftHand && !(level.playerStart.z < 0 && level.spots[0].cz < 0 && level.spots[0].dir > 0)) fail('keep-left level should put the player and their spot on the left (-z) curb');
       const world = new World(level, veh, { aiSpec: veh, aiProfile: AI_PROFILES[diff.id], rand: rng(seed) });
       const pd = new AIDriver(world, world.player, world.playerSpot, AI_PROFILES.insane, rng(seed + 9));
       let t = 0;
@@ -34,16 +36,16 @@ for (const veh of VEHICLES) {
       const ai = world.ai.car, pl = world.player;
       const ok = ai.parked && pl.parked && ai.dings === 0 && pl.dings === 0 && pl.moves <= pd.plan_.moves + 1;
       if (!ok) failures++;
-      if (!ok || verbose) console.log(`${ok ? 'ok  ' : 'FAIL'} ${veh.id.padEnd(8)} ${diff.id.padEnd(7)} s${seed} | AI ${fmt(ai, world.ai.driver)} | P ${fmt(pl, pd)}`);
+      if (!ok || verbose) console.log(`${ok ? 'ok  ' : 'FAIL'} ${veh.id.padEnd(8)} ${diff.id.padEnd(7)} s${seed}${leftHand ? ' NZ' : '   '} | AI ${fmt(ai, world.ai.driver)} | P ${fmt(pl, pd)}`);
     }
   }
 }
 
-// 2. Career levels: the spot must be parkable with the level's own car.
-for (const lv of CAREER) {
+// 2. Career levels: the spot must be parkable with the level's own car, on either side of the road.
+for (const [lv, leftHand] of CAREER.flatMap((l) => [[l, false], [l, true]])) {
   const veh = vehicleById(lv.vehicle || 'bean');
   const mods = lv.mods.filter((m) => !DRIVING_MODS.includes(m));
-  const level = buildLevel({ mode: lv.mode || 'test', difficulty: lv.diff, vehicle: veh, seed: 5, mods });
+  const level = buildLevel({ mode: lv.mode || 'test', difficulty: lv.diff, vehicle: veh, seed: 5, mods, leftHand });
   const opts = { rand: rng(5) };
   if (lv.mode === 'race') { opts.aiSpec = veh; opts.aiProfile = AI_PROFILES[lv.diff]; }
   const world = new World(level, veh, opts);
@@ -58,9 +60,9 @@ for (const lv of CAREER) {
 }
 
 // 3. Hazards soak test: every mod at once (where they combine), nobody parked, nothing NaN.
-{
+for (const leftHand of [false, true]) {
   const veh = vehicleById('za');
-  const level = buildLevel({ mode: 'wreck', difficulty: 'normal', vehicle: veh, seed: 3, mods: [...RANDOM_POOL] });
+  const level = buildLevel({ mode: 'wreck', difficulty: 'normal', vehicle: veh, seed: 3, mods: [...RANDOM_POOL], leftHand });
   const world = new World(level, veh, { rand: rng(3) });
   if (world.traffic.cars.length < 5) fail(`wreck mode should have traffic in both lanes, got ${world.traffic.cars.length}`);
   if (world.peds.list.length < 10) fail(`wreck mode should have pedestrians, got ${world.peds.list.length}`);
@@ -77,6 +79,10 @@ for (const lv of CAREER) {
   if (world.player.nitro < 0 || world.player.nitro > 100) fail(`nitro out of range: ${world.player.nitro}`);
   if (verbose) console.log(`soak: scares=${scares} honks=${honks} destruction=$${world.destruction} combo best=${world.comboBest} speed=${(world.player.speed * 3.6).toFixed(0)}km/h`);
   if (scares === 0) fail('nobody dived out of the way in 60s of lunatic driving');
+  // Traffic keeps to its own side: nobody should be stuck facing the wrong way or on the sidewalk.
+  const lost = world.traffic.cars.filter((c) => !c.off && Math.abs(c.body.z - c.lane.dir * level.hand * 2.1) > 3.5);
+  if (leftHand && lost.length > 2) fail(`${lost.length} traffic cars ended up far from their lane when keeping left`);
+  if (leftHand && world.props.some((p) => p.type === 'sheep' && p.broken)) fail('a sheep was broken. Sheep cannot be broken.');
 }
 
 // 4. The shrinking spot stops at a parkable size.

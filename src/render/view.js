@@ -232,7 +232,9 @@ export class View {
       this.shake = Math.max(this.shake, Math.min(0.5, e.impact * 0.04));
     } else if (e.type === 'ding') {
       if (e.impact > 0.6) P.sparks(e.x, 0.6, e.z, Math.round(4 + e.impact * 3), 2 + e.impact);
-      if (e.car.isPlayer) {
+      if (e.car.isPlayer && e.prop && e.prop.type === 'sheep') {
+        this.popups.add('BAA!', e.x, 1.8, e.z, '#ffffff', 1.4);
+      } else if (e.car.isPlayer) {
         const words = e.impact > 6 ? ['KA-BLAM!', 'CRUNCH!!', 'OH NO.'] : e.impact > 2.5 ? ['CRUNCH!', 'BONK!', 'WHAM!'] : ['DING!', 'TINK!', 'BOOP.'];
         this.popups.add(words[Math.floor(Math.random() * words.length)], e.x, 1.6, e.z, e.impact > 2.5 ? '#ff5555' : '#ffff55', 1 + Math.min(1, e.impact / 6));
         this.shake = Math.max(this.shake, Math.min(0.8, e.impact * 0.06));

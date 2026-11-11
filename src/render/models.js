@@ -360,6 +360,14 @@ export function buildProp(type) {
       plaque.position.set(0, 1.4, 0.62); add(plaque);
       break;
     }
+    case 'sheep': {
+      add(box(0.9, 0.5, 0.5, EGA.white, 0, 0.6, 0));
+      add(box(0.7, 0.14, 0.4, EGA.lgray, 0, 0.9, 0));       // extra fluff
+      add(box(0.26, 0.26, 0.26, EGA.dgray, 0.55, 0.78, 0)); // head
+      add(box(0.06, 0.1, 0.44, EGA.dgray, 0.5, 0.92, 0));   // ears
+      for (const [x, z] of [[0.3, 0.15], [0.3, -0.15], [-0.3, 0.15], [-0.3, -0.15]]) add(box(0.09, 0.36, 0.09, EGA.dgray, x, 0.18, z));
+      break;
+    }
     default:
       add(box(0.5, 0.5, 0.5, EGA.lmagenta, 0, 0.25, 0));
   }
@@ -550,9 +558,10 @@ export function buildRamp(ramp) {
 export function buildSpotMarker(spot, color = EGA.yellow) {
   const g = new THREE.Group();
   const len = spot.length, depth = 2.4;
-  const zc = spot.cz - spot.dir * depth / 2;
+  const side = Math.sign(spot.cz);
+  const zc = spot.cz - side * depth / 2;
   const lines = [
-    [len, 0.12, spot.cx, zc - spot.dir * depth / 2 + spot.dir * 0.06],
+    [len, 0.12, spot.cx, zc - side * depth / 2 + side * 0.06],
     [0.12, depth, spot.cx - len / 2, zc],
     [0.12, depth, spot.cx + len / 2, zc],
   ];

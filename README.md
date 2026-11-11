@@ -92,6 +92,12 @@ turn it off or on.
     statue of the mayor. At the far end is a ramp: hit it straight for big air;
     land wrong and you flip, which ends the run. Press ENTER to file the claim early.
   - **Tutorial**: a one-minute guided intro. Runs automatically the first time.
+- **New Zealand Mode**: a menu toggle (or open the game with `?nz` on the end of
+  the address) for anyone about to drive somewhere that keeps left. The whole
+  street is mirrored: you drive on the left and park against the left-hand curb,
+  in every mode, with the traffic coming the other way. The instructor turns
+  Kiwi and shouts if you drift onto the right, the shops change, and there are
+  sheep. Sheep cannot be broken.
 
 ### Hazards
 
@@ -130,7 +136,7 @@ open the **paint shop**. Progress and paint jobs are saved in the browser.
 - `src/sim/`: game logic with no graphics, so it runs in Node too.
   - `physics.js`: small 2D oriented-box rigid body physics.
   - `vehicles.js`: vehicle specs and the bicycle-model driving (grip, nitro).
-  - `level.js`: street layout, parked cars, gaps, props, difficulty, hazards.
+  - `level.js`: street layout (`leftHand` mirrors it), parked cars, gaps, props, difficulty, hazards.
   - `mods.js`: the hazard definitions.
   - `world.js`: steps the sim, collisions, dings, curb hops, smashing, combos,
     earthquakes, the shrinking spot, park detection.
@@ -152,7 +158,7 @@ open the **paint shop**. Progress and paint jobs are saved in the browser.
 npm test
 ```
 
-Runs the AI on every vehicle at every difficulty and checks it parks with no dings
-and within par (if the AI can do it, the spot is fair for a human), checks every
-Career level is parkable, soaks the traffic and pedestrians for a minute, and
+Runs the AI on every vehicle at every difficulty, keeping right and keeping left,
+and checks it parks with no dings and within par (if the AI can do it, the spot
+is fair for a human), checks every Career level is parkable on both sides, soaks the traffic and pedestrians for a minute, and
 checks the shrinking spot stays parkable.

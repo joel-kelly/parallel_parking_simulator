@@ -2,8 +2,16 @@ import { corners } from './physics.js';
 
 // Spot frame: origin at the spot centre on the curb line, +x' = direction of
 // traffic on that side of the road, +z' = toward the curb.
+// spot.dir is the traffic direction (+1 = +x). spot.hand is +1 when the curb
+// is on the driver's right and -1 when it's on their left (New Zealand mode),
+// in which case the frame is a mirror image, so angles and steering flip too.
 export function toSpot(spot, x, z) {
-  return [spot.dir * (x - spot.cx), spot.dir * (z - spot.cz)];
+  return [spot.dir * (x - spot.cx), spot.dir * spot.hand * (z - spot.cz)];
+}
+
+// A world heading as an angle in the spot frame (0 = along the traffic).
+export function spotAngle(spot, a) {
+  return spot.hand * wrapAngle(a - (spot.dir > 0 ? 0 : Math.PI));
 }
 
 export function wrapAngle(a) {
@@ -13,7 +21,7 @@ export function wrapAngle(a) {
 }
 
 export function spotPose(spot, body, ahead) {
-  const a = wrapAngle(body.a - (spot.dir > 0 ? 0 : Math.PI));
+  const a = spotAngle(spot, body.a);
   const [cx, cz] = toSpot(spot, body.x, body.z);
   return {
     x: cx - Math.cos(a) * ahead,

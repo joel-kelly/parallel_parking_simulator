@@ -1,6 +1,6 @@
 import { centreAhead } from './vehicles.js';
 import { PARK_GAP } from './level.js';
-import { spotPose, spotBounds, toSpot, wrapAngle } from './spot.js';
+import { spotPose, spotBounds, toSpot, spotAngle } from './spot.js';
 import { collideOBB } from './physics.js';
 
 export const AI_PROFILES = {
@@ -43,7 +43,7 @@ export function planPark(world, spot, spec, rand = () => 0.5, slop = 0) {
   const obstacles = [spot.frontCar, spot.rearCar].map((i) => {
     const o = world.parked[i].body;
     const [x, z] = toSpot(spot, o.x, o.z);
-    return { x, z, a: wrapAngle(o.a - (spot.dir > 0 ? 0 : Math.PI)), hl: o.hl + PAD, hw: o.hw + PAD };
+    return { x, z, a: spotAngle(spot, o.a), hl: o.hl + PAD, hw: o.hw + PAD };
   });
   const ctx = { R, b, spec, bounds, obstacles };
 
@@ -218,7 +218,7 @@ export class AIDriver {
         inp.steer = target;
         if (m.steering) {
           go(0);
-          if (Math.abs(c.steer - target * c.spec.maxSteer) < 0.02 && Math.abs(v) < 0.05) m.steering = false;
+          if (Math.abs(c.steer * this.spot.hand - target * c.spec.maxSteer) < 0.02 && Math.abs(v) < 0.05) m.steering = false;
         } else {
           let left = Infinity;
           if (m.until === 'heading') left = Math.max(0, (m.dir * m.steer > 0 ? m.target - pose.a : pose.a - m.target)) * P.R;
@@ -247,6 +247,7 @@ export class AIDriver {
         else this.replan();
       }
     } else this.stuck = 0;
+    inp.steer *= this.spot.hand; // planned in the spot frame, which is mirrored when the curb is on the left
     return inp;
   }
 }

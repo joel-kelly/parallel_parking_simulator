@@ -15,6 +15,7 @@ const DEFAULTS = () => ({
   rumble: true,      // controller vibration (V key)
   paint: {},         // vehicle id -> { color, accent }
   tutorialSeen: false,
+  kiwi: false,       // New Zealand mode: keep left, park on the left
   tutorialDone: false,
   career: {},        // level id -> stars (0-3)
   trophies: [],      // trophy ids

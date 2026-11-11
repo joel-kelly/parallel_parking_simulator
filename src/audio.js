@@ -162,6 +162,11 @@ export class Audio {
 
   strike() { this.tone(220, 0.3, 'square', 0.12); this.tone(165, 0.5, 'square', 0.12, 0.25); }
 
+  baa() {
+    // a wobbly bleat: quick alternating tones for the tremolo
+    for (let i = 0; i < 7; i++) this.tone(i % 2 ? 390 : 340, 0.07, 'sawtooth', 0.1, i * 0.06, -20);
+  }
+
   blip() { this.tone(660, 0.05, 'square', 0.06); }
   select() { this.tone(880, 0.06, 'square', 0.06); this.tone(1320, 0.08, 'square', 0.06, 0.06); }
 

@@ -2,7 +2,7 @@ import { View } from './render/view.js';
 import { Audio } from './audio.js';
 import { loadSave, writeSave, todayKey } from './save.js';
 import { World } from './sim/world.js';
-import { buildLevel, DIFFICULTIES, rng } from './sim/level.js';
+import { buildLevel, DIFFICULTIES, rng, CURB } from './sim/level.js';
 import { VEHICLES, vehicleById, NITRO_MAX } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
 import { gradePark } from './sim/grading.js';
@@ -19,6 +19,8 @@ const screen = $('screen');
 const hud = $('hud');
 
 const save = loadSave();
+// A link ending in ?nz switches New Zealand mode on, handy for sending to a friend.
+if (new URLSearchParams(location.search).has('nz')) { save.kiwi = true; writeSave(save); }
 setLayouts(save.padLayouts);
 setRumble(save.rumble);
 const audio = new Audio();
@@ -104,6 +106,7 @@ const MENU = [
   { id: 'shift', name: 'VALET SHIFT', desc: 'Endless. Customers keep coming, the spots keep shrinking, the clock keeps ticking. Three strikes.' },
   { id: 'daily', name: 'DAILY DARE', desc: 'One fixed challenge per day. Same for everyone. Brag accordingly.' },
   { id: 'free', name: 'FREE PLAY', desc: 'Driving Test, Race the AI, Wreck-reation, Tutorial.' },
+  { id: 'kiwi', name: 'NEW ZEALAND MODE', desc: 'Off to Aotearoa? Flip the street: keep LEFT, park on the LEFT. Sheep have right of way.' },
   { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides. Paint them badly.' },
   { id: 'trophies', name: 'TROPHIES', desc: 'Achievements. Each one is worth points and smugness.' },
   { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, hazards, and a short lecture.' },
@@ -132,6 +135,20 @@ const INSTRUCTOR = {
   timeLow: ['Ten seconds. Tick tock.', 'Time is a flat circle. Yours is almost up.'],
   hidden: ['No marker today. Find a gap you fit in. Any gap.', 'Several gaps. One of them is yours. Tighter ones pay more.'],
 };
+// New Zealand mode: a local instructor takes over the everyday lines.
+const KIWI = {
+  start: ['Kia ora! We keep LEFT here. Curb\'s on your left, mate.', 'Keep left, park left. And that stalk is the wipers, not the indicator.', 'Sweet as. Left side of the road, eh. The OTHER left.'],
+  ding: ['Yeah, nah.', 'She\'ll be right. (She will not be right.)', 'Aw, mate. That was somebody\'s ute.', 'Bit munted now, eh.'],
+  curb: ['That\'s the footpath, bro.', 'Yeah, nah, not up there.', 'You\'ve parked in the wop-wops.'],
+  prop: ['Aw, come on, mate!', 'The council\'s gonna be gutted.', 'That\'s not very tidy Kiwi.'],
+  slow: ['No rush. Might put the jug on.', 'You right there, mate?', 'I could\'ve walked to Bluff by now.'],
+  reverse: ['Beep. Beep. Chur.', 'Backing up! Choice.'],
+  wrongSide: ['KEEP LEFT, MATE! LEFT!', 'Wrong side! This isn\'t America!', 'Other side! OTHER SIDE!', 'Left! The side your watch is on! Probably!'],
+  sheep: ['That sheep has right of way.', 'Oi! She was here first.', 'There are about five sheep for every person here. You are outnumbered.', 'Baa-d driving, that.'],
+  good: ['Sweet as. Chur, bro.', 'Choice parking, mate. You\'re basically a local.', 'Tu meke! Left side and everything.'],
+  bad: ['Yeah, nah. Nah. Yeah, nah.', 'Bit of a dag, aren\'t you.', 'She\'ll be right. Eventually. Maybe.'],
+};
+const lines = (k) => (save.kiwi && KIWI[k]) || INSTRUCTOR[k];
 const pickLine = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function say(text, secs = 3.5) {
@@ -184,6 +201,7 @@ const SLOGANS = [
   'AS SEEN ON A DRIVING TEST NEAR YOU',
   'THE METER IS RUNNING. SO IS YOUR NOSE.',
   'NOW PARKING: ABSOLUTELY NOBODY',
+  'GOING TO NEW ZEALAND? TRY NEW ZEALAND MODE',
 ];
 let sloganIdx = 0;
 setInterval(() => {
@@ -207,6 +225,7 @@ function renderMenu() {
     if (m.id === 'trophies') return `<span class="tag">${save.trophies.length}/${TROPHIES.length}</span>`;
     if (m.id === 'shift' && save.shiftBestRound) return `<span class="tag">BEST ${save.shiftBest}</span>`;
     if (m.id === 'daily' && save.daily[todayKey()] != null) return '<span class="tag">DONE TODAY</span>';
+    if (m.id === 'kiwi') return save.kiwi ? '<span class="tag">ON</span>' : '<span class="tag" style="color:var(--lgray)">OFF</span>';
     return '';
   };
   showScreen(`
@@ -252,13 +271,31 @@ function highlightMenu() {
     const c = dailyConfig();
     const best = save.daily[c.dailyKey];
     d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${vehicleById(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
-  } else d.textContent = m.desc;
+  } else if (m.id === 'kiwi' && save.kiwi) d.textContent = 'Kia ora! The street is flipped: keep LEFT, park on the LEFT. Sheep have right of way.';
+  else d.textContent = m.desc;
+}
+
+function toggleKiwi() {
+  save.kiwi = !save.kiwi;
+  writeSave(save);
+  loadBackdrop();
+  renderMenu();
+  if (save.kiwi) audio.baa();
+}
+
+// A scenic street behind the menus, with a bit of life in it.
+function loadBackdrop() {
+  const vehicle = vehicleById(save.vehicle);
+  const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7, mods: ['traffic', 'peds'], leftHand: save.kiwi });
+  game.world = new World(level, vehicle, { rand: rng(7) });
+  view.load(game.world);
 }
 
 function menuSelect() {
   audio.select();
   const m = MENU[game.menuSel];
   if (m.id === 'garage') renderGarage();
+  else if (m.id === 'kiwi') toggleKiwi();
   else if (m.id === 'howto') renderHowTo();
   else if (m.id === 'pad') renderPadSetup();
   else if (m.id === 'free') renderFree();
@@ -557,8 +594,9 @@ function renderHowTo() {
         NO GEARS TO FIDDLE WITH: STOP, THEN HOLD S TO GO BACKWARD. EACH TIME YOU SWITCH
         DIRECTION IT COUNTS AS A MOVE. BEAT THE INSTRUCTOR'S PAR FOR FULL MARKS.<br><br>
         TO PARK: STOP INSIDE THE SPOT, CLOSE TO THE CURB, MORE OR LESS STRAIGHT, AND HOLD STILL.<br><br>
-        CLASSIC TECHNIQUE: PULL UP ALONGSIDE THE FRONT CAR. REVERSE WITH FULL RIGHT LOCK
-        UNTIL YOU'RE AT ~45&deg;. THEN FULL LEFT LOCK AS YOU SWING IN. SHUFFLE IF NEEDED.<br><br>
+        CLASSIC TECHNIQUE: PULL UP ALONGSIDE THE FRONT CAR. REVERSE WITH FULL ${save.kiwi ? 'LEFT' : 'RIGHT'} LOCK
+        UNTIL YOU'RE AT ~45&deg;. THEN FULL ${save.kiwi ? 'RIGHT' : 'LEFT'} LOCK AS YOU SWING IN. SHUFFLE IF NEEDED.<br><br>
+        ${save.kiwi ? '<span class="good">NEW ZEALAND MODE IS ON: KEEP LEFT. THE CURB IS ON YOUR LEFT, SO EVERYTHING IS MIRRORED.</span><br><br>' : ''}
         <span style="color:var(--lmagenta)">HAZARDS</span> (CAREER, VALET SHIFT AND DAILY DARE MIX THESE IN):<br>
         ${Object.values(MODS).map((m) => `<span style="color:var(--white)">${m.name}</span>: ${m.desc.toUpperCase()}`).join('<br>')}
       </p>
@@ -616,7 +654,7 @@ function startRun(cfg) {
   const vehicle = paintedSpec(baseVehicle);
   const mods = cfg.mods || [];
   const seed = cfg.seed ?? (tutorial ? 11 : Math.floor(Math.random() * 1e9));
-  const level = buildLevel({ mode: simMode, difficulty: diff.id, vehicle, seed, mods, margin: cfg.margin });
+  const level = buildLevel({ mode: simMode, difficulty: diff.id, vehicle, seed, mods, margin: cfg.margin, leftHand: save.kiwi });
   const opts = { rand: rng(seed + 1) };
   if (simMode === 'race') {
     opts.aiSpec = baseVehicle;
@@ -639,6 +677,9 @@ function startRun(cfg) {
   game.idleT = 0;
   game.slow = 0;
   game.saidReverse = false;
+  game.wrongSideT = 0;
+  game.wrongSideNag = 0;
+  game.sheepNag = 0;
   game.result = null;
   game.autopilot = null;
   game.tutorial = tutorial ? new Tutorial($('tutor'), usingPad) : null;
@@ -672,11 +713,11 @@ function startRun(cfg) {
     if (level.mods.has('hidden')) open(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.hidden)}`, 5);
     else if (level.mods.has('sticky')) open('<b>INSTRUCTOR:</b> The pedal is stuck. Brakes work. Finish with the handbrake (SPACE). Do not panic. Panic a little.', 6);
     else if (level.mods.has('mirror')) open('<b>INSTRUCTOR:</b> The steering is reversed. Left is right. I did warn the dealer.', 5);
-    else open(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.start)}`, 5);
+    else open(`<b>INSTRUCTOR:</b> ${pickLine(lines('start'))}`, 5);
   }
   if (simMode === 'race') open(`<b>${run.aiProfile.name}:</b> "${run.aiProfile.taunt}"`, 4);
-  if (tutorial) say('<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.', 4);
-  if (simMode === 'wreck') say('<b>WRECK-REATION:</b> Two minutes until the cops arrive. Smash things fast for combos, hold SHIFT for nitro, and mind the ramp at the far end: land on your wheels or it is game over. ENTER cashes out early.', 7);
+  if (tutorial) say(`<b>INSTRUCTOR:</b> Welcome to driving school. Follow the instructions up top.${save.kiwi ? ' We keep LEFT here, mate.' : ''}`, 4);
+  if (simMode === 'wreck') say('<b>WRECK-REATION:</b> Two minutes until the cops arrive. Smash things fast for combos, hold SHIFT for nitro, and mind the ramp at the far end: land on your wheels or it is game over. ENTER cashes out early.' + (save.kiwi ? ' And nothing breaks a sheep.' : ''), 7);
 }
 
 // ---- valet shift ----
@@ -696,7 +737,7 @@ function shiftRoundConfig(sh) {
   const seed = sh.seed * 13 + sh.round;
   // Make sure the spot is actually parkable in this car: widen until the planner finds a way.
   for (let k = 0; k < 6; k++) {
-    const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed, margin });
+    const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed, margin, leftHand: save.kiwi });
     const world = new World(level, vehicle, { rand: rng(seed) });
     if (planPark(world, world.playerSpot, vehicle)) break;
     margin += 0.2;
@@ -767,6 +808,7 @@ function updateHUD() {
   $('hud-tl').innerHTML = tl;
 
   let tr = `<div>${run.kind === 'tutorial' ? 'PRACTICE' : run.kind === 'shift' ? `${run.vehicle.length.toFixed(1)}M CAR` : run.diff.name}</div><div>PTS <span class="k">${save.points}</span></div>`;
+  if (w.level.leftHand) tr += '<div class="good">NZ: KEEP LEFT</div>';
   if (run.career) tr = `<div>LEVEL ${run.career.index + 1}: ${run.career.level.name}</div>${tr}`;
   if (run.simMode === 'race' && w.ai) {
     const a = w.ai.car;
@@ -823,24 +865,28 @@ function handleEvents(events) {
   const hitBuzz = (impact) => buzz(0.15 + impact * 0.09, 0.25 + impact * 0.06, 80 + Math.min(300, impact * 40));
   for (const e of events) {
     view.handle(e);
-    if (e.type === 'ding') {
+    if (e.type === 'ding' && e.car.isPlayer && e.prop && e.prop.type === 'sheep') {
+      hitBuzz(e.impact);
+      audio.baa();
+      if (game.sheepNag <= 0) { say(`<b>${run.simMode === 'wreck' ? 'FARMER' : 'INSTRUCTOR'}:</b> ${pickLine(KIWI.sheep)}`); game.sheepNag = 4; }
+    } else if (e.type === 'ding') {
       if (e.car.isPlayer || (e.otherCar && e.otherCar.isPlayer)) hitBuzz(e.impact);
       if (e.car.isPlayer || e.impact > 1) audio.crash(e.impact);
       if (e.car.isPlayer && e.otherCar && e.otherCar.isTraffic) audio.honk();
-      if (e.car.isPlayer && test && e.impact > 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.ding)}`);
+      if (e.car.isPlayer && test && e.impact > 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('ding'))}`);
     } else if (e.type === 'break') {
       audio.crash(3);
       if (e.by && e.by.isPlayer) hitBuzz(Math.max(2, e.impact || 0));
       if (e.prop.type === 'meter') audio.coin();
       if (e.prop.type === 'statue') { audio.boom(); game.slow = Math.max(game.slow, 0.8); }
-      if (test && e.by && e.by.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.prop)}`);
+      if (test && e.by && e.by.isPlayer) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('prop'))}`);
     } else if (e.type === 'wreck') { audio.boom(); game.slow = Math.max(game.slow, 0.5); buzz(1, 0.8, 450); }
     else if (e.type === 'smash' || e.type === 'facade') { audio.smash(); buzz(0.6, 0.6, 200); }
     else if (e.type === 'collapse') { audio.boom(); audio.smash(); game.slow = Math.max(game.slow, 0.9); buzz(1, 1, 900); }
     else if (e.type === 'curb' && e.car.isPlayer) {
       audio.curb();
       buzz(0.35, 0.1, 90);
-      if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.curb)}`);
+      if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('curb'))}`);
     } else if (e.type === 'parked') {
       audio.jingle(e.car.isPlayer);
       if (e.car.isPlayer) { game.slow = Math.max(game.slow, 1.1); buzz(0, 0.5, 120); }
@@ -901,6 +947,7 @@ function finishTest() {
   const spot = p.parkedSpot;
   const par = spot && spot.par != null ? spot.par : run.par;
   const r = gradePark({ car: p, evalResult: p.finalEval, time: game.playTime, par, difficulty: run.diff, spot, mods: run.mods, hidden: run.mods.has('hidden') });
+  if (save.kiwi && Math.random() < 0.6) r.quip = pickLine(r.score >= 700 ? KIWI.good : KIWI.bad);
   if (game.autopilot) {
     r.points = 0;
     r.quip = 'The instructor parked it. You get nothing. Good day, sir.';
@@ -1362,9 +1409,22 @@ function step(now) {
     // instructor nags
     if (run.kind === 'test' && game.state === 'play') {
       if (Math.abs(w.player.speed) < 0.05) game.idleT += dt; else game.idleT = 0;
-      if (game.idleT > 12) { say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.slow)}`); game.idleT = 0; }
-      if (!game.saidReverse && w.player.gear === 'R' && w.player.speed < -0.5) { game.saidReverse = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.reverse)}`, 2); }
+      if (game.idleT > 12) { say(`<b>INSTRUCTOR:</b> ${pickLine(lines('slow'))}`); game.idleT = 0; }
+      if (!game.saidReverse && w.player.gear === 'R' && w.player.speed < -0.5) { game.saidReverse = true; say(`<b>INSTRUCTOR:</b> ${pickLine(lines('reverse'))}`, 2); }
     }
+    // New Zealand mode: shout if the player drifts over to the right-hand side.
+    if (w.level.leftHand && game.state === 'play' && run.simMode !== 'wreck' && !game.autopilot) {
+      const b = w.player.body;
+      const wrong = b.z > 0.7 && Math.abs(b.z) < CURB && Math.abs(w.player.speed) > 1;
+      game.wrongSideT = wrong ? game.wrongSideT + dt : 0;
+      game.wrongSideNag -= dt;
+      if (game.wrongSideT > 0.8 && game.wrongSideNag <= 0) {
+        say(`<b>INSTRUCTOR:</b> ${pickLine(KIWI.wrongSide)}`, 3);
+        audio.horn('hatch');
+        game.wrongSideNag = 6;
+      }
+    }
+    game.sheepNag -= dt;
     audio.reverseBeep(dt, w.player.gear === 'R' && w.player.speed < -0.2);
     audio.nitro(w.player.nitroOn && game.state === 'play');
     if (game.sirenT > 0) {
@@ -1407,12 +1467,7 @@ async function boot() {
   combo.id = 'combo';
   combo.className = 'hidden';
   hud.appendChild(combo);
-  // a scenic street behind the menu, with a bit of life in it
-  const vehicle = vehicleById(save.vehicle);
-  const level = buildLevel({ mode: 'test', difficulty: 'normal', vehicle, seed: 7, mods: ['traffic', 'peds'] });
-  const world = new World(level, vehicle, { rand: rng(7) });
-  game.world = world;
-  view.load(world);
+  loadBackdrop();
   renderMenu();
   window.__ppsBooted = true;
   $('boot-msg').style.display = 'none';
