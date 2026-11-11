@@ -82,6 +82,7 @@ function pollController() {
   if (s === 'padsetup') { pad = { throttle: 0, steer: 0, handbrake: false, codes: [] }; return; }
   pad = pollPads(s === 'play' || s === 'countdown' ? 'drive' : s === 'paused' ? 'paused' : 'menu');
   for (const c of pad.codes) pressed.set(c, (pressed.get(c) || 0) + 1);
+  padSecret(pad.codes);
   if (pad.active) { audio.unlock(); usingPad = true; }
   if (game.tutorial) game.tutorial.setPad(usingPad);
 }
@@ -289,13 +290,27 @@ function toggleKiwi() {
 // Type the code on the main menu (again to switch it off): every car in the
 // game, parked cars, traffic and rivals included, is dressed as food, and
 // every ride is free. The code avoids the menu's own keys (W, S, M, P, V).
+// On a controller it's "wiggle the wheel, honk twice": left, right, left,
+// right (d-pad or stick), then Y, Y. None of those do anything on the menu.
 const SECRET = 'GOLDBUG';
+const PAD_SECRET = 'LRLRYY';
+const PAD_TOKENS = { ArrowLeft: 'L', ArrowRight: 'R', KeyG: 'Y' }; // Y arrives as KeyG (+ KeyQ)
 let typed = '';
+let padTyped = '';
 function typeSecret(key) {
   if (game.state !== 'menu' || key.length !== 1) { typed = ''; return; }
   typed = (typed + key.toUpperCase()).slice(-SECRET.length);
-  if (typed !== SECRET) return;
+  if (typed === SECRET) toggleSecret();
+}
+function padSecret(codes) {
+  if (game.state !== 'menu') { padTyped = ''; return; }
+  // Up, down and the rest are ignored, so a wobbly stick doesn't spoil it.
+  for (const c of codes) if (PAD_TOKENS[c]) padTyped = (padTyped + PAD_TOKENS[c]).slice(-PAD_SECRET.length);
+  if (padTyped === PAD_SECRET) { toggleSecret(); rumble(0.4, 0.8, 300); }
+}
+function toggleSecret() {
   typed = '';
+  padTyped = '';
   save.goldbug = !save.goldbug;
   // Back in the real world you only drive what you own.
   if (!owns(veh(save.vehicle))) save.vehicle = VEHICLES[0].id;
