@@ -16,7 +16,7 @@ const DEFAULTS = () => ({
   paint: {},         // vehicle id -> { color, accent }
   tutorialSeen: false,
   goldbug: false,    // secret mode: everybody drives food (type GOLDBUG on the menu)
-  kiwi: false,       // New Zealand mode: keep left, park on the left
+  kiwi: false,       // secret New Zealand mode: keep left, park on the left (type KIWI on the menu)
   tutorialDone: false,
   career: {},        // level id -> stars (0-3)
   trophies: [],      // trophy ids

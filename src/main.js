@@ -108,7 +108,6 @@ const MENU = [
   { id: 'shift', name: 'VALET SHIFT', desc: 'Endless. Customers keep coming, the spots keep shrinking, the clock keeps ticking. Three strikes.' },
   { id: 'daily', name: 'DAILY DARE', desc: 'One fixed challenge per day. Same for everyone. Brag accordingly.' },
   { id: 'free', name: 'FREE PLAY', desc: 'Driving Test, Race the AI, Wreck-reation, Tutorial.' },
-  { id: 'kiwi', name: 'NEW ZEALAND MODE', desc: 'Off to Aotearoa? Flip the street: keep LEFT, park on the LEFT. Sheep have right of way.' },
   { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides. Paint them badly.' },
   { id: 'trophies', name: 'TROPHIES', desc: 'Achievements. Each one is worth points and smugness.' },
   { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, hazards, and a short lecture.' },
@@ -203,7 +202,7 @@ const SLOGANS = [
   'AS SEEN ON A DRIVING TEST NEAR YOU',
   'THE METER IS RUNNING. SO IS YOUR NOSE.',
   'NOW PARKING: ABSOLUTELY NOBODY',
-  'GOING TO NEW ZEALAND? TRY NEW ZEALAND MODE',
+  'GOING TO NEW ZEALAND? ASK A KIWI',
 ];
 let sloganIdx = 0;
 setInterval(() => {
@@ -227,7 +226,6 @@ function renderMenu() {
     if (m.id === 'trophies') return `<span class="tag">${save.trophies.length}/${TROPHIES.length}</span>`;
     if (m.id === 'shift' && save.shiftBestRound) return `<span class="tag">BEST ${save.shiftBest}</span>`;
     if (m.id === 'daily' && save.daily[todayKey()] != null) return '<span class="tag">DONE TODAY</span>';
-    if (m.id === 'kiwi') return save.kiwi ? '<span class="tag">ON</span>' : '<span class="tag" style="color:var(--lgray)">OFF</span>';
     return '';
   };
   showScreen(`
@@ -235,6 +233,7 @@ function renderMenu() {
       <div class="logo">PARALLEL PARKING<br><span class="l2">SIMULATOR</span></div>
       <div class="tagline slogan" id="slogan">${SLOGANS[sloganIdx]}</div>
       ${save.goldbug ? '<div class="tagline new">GOLDBUG MODE: EVERYBODY DRIVES THEIR LUNCH. ALL RIDES FREE.</div>' : ''}
+      ${save.kiwi ? '<div class="tagline new">KIA ORA! NEW ZEALAND MODE: KEEP LEFT, PARK ON THE LEFT. SHEEP HAVE RIGHT OF WAY.</div>' : ''}
       ${save.tutorialSeen ? '' : '<div class="tagline new">NEW HERE? A QUICK TUTORIAL RUNS FIRST (ENTER SKIPS IT)</div>'}
       <ul class="menu" id="menu">
         ${MENU.map((m, i) => `<li data-i="${i}">${m.name}${tag(m)}</li>`).join('')}
@@ -274,11 +273,11 @@ function highlightMenu() {
     const c = dailyConfig();
     const best = save.daily[c.dailyKey];
     d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${veh(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
-  } else if (m.id === 'kiwi' && save.kiwi) d.textContent = 'Kia ora! The street is flipped: keep LEFT, park on the LEFT. Sheep have right of way.';
-  else d.textContent = m.desc;
+  } else d.textContent = m.desc;
 }
 
 function toggleKiwi() {
+  resetSecrets();
   save.kiwi = !save.kiwi;
   writeSave(save);
   loadBackdrop();
@@ -286,31 +285,44 @@ function toggleKiwi() {
   if (save.kiwi) audio.baa();
 }
 
-// ---- the secret mode ----
-// Type the code on the main menu (again to switch it off): every car in the
-// game, parked cars, traffic and rivals included, is dressed as food, and
-// every ride is free. The code avoids the menu's own keys (W, S, M, P, V).
-// On a controller it's "wiggle the wheel, honk twice": left, right, left,
-// right (d-pad or stick), then Y, Y. None of those do anything on the menu.
-const SECRET = 'GOLDBUG';
-const PAD_SECRET = 'LRLRYY';
-const PAD_TOKENS = { ArrowLeft: 'L', ArrowRight: 'R', KeyG: 'Y' }; // Y arrives as KeyG (+ KeyQ)
+// ---- the secret modes ----
+// Type a code on the main menu (again to switch it off):
+//   GOLDBUG: every car in the game, parked cars, traffic and rivals included,
+//     is dressed as food, and every ride is free.
+//   KIWI: New Zealand mode. The street is flipped: keep left, park on the left.
+//     (Its W nudges the menu highlight up one; nothing else on the menu reacts.)
+// On a controller (d-pad or stick for the directions):
+//   GOLDBUG is "wiggle the wheel, honk twice": left, right, left, right, Y, Y.
+//   KIWI is the mirror image: right, left, right, left, X, X.
+// None of those buttons do anything else on the menu.
+const SECRETS = [
+  { word: 'GOLDBUG', pad: 'LRLRYY', toggle: () => toggleSecret() },
+  { word: 'KIWI', pad: 'RLRLXX', toggle: () => toggleKiwi() },
+];
+const PAD_TOKENS = { ArrowLeft: 'L', ArrowRight: 'R', KeyG: 'Y', KeyC: 'X' }; // Y arrives as KeyG (+ KeyQ)
+const TYPED_MAX = Math.max(...SECRETS.map((c) => c.word.length));
+const PAD_MAX = Math.max(...SECRETS.map((c) => c.pad.length));
 let typed = '';
 let padTyped = '';
+function resetSecrets() { typed = ''; padTyped = ''; }
 function typeSecret(key) {
   if (game.state !== 'menu' || key.length !== 1) { typed = ''; return; }
-  typed = (typed + key.toUpperCase()).slice(-SECRET.length);
-  if (typed === SECRET) toggleSecret();
+  typed = (typed + key.toUpperCase()).slice(-TYPED_MAX);
+  const hit = SECRETS.find((c) => typed.endsWith(c.word));
+  if (hit) hit.toggle();
 }
 function padSecret(codes) {
   if (game.state !== 'menu') { padTyped = ''; return; }
   // Up, down and the rest are ignored, so a wobbly stick doesn't spoil it.
-  for (const c of codes) if (PAD_TOKENS[c]) padTyped = (padTyped + PAD_TOKENS[c]).slice(-PAD_SECRET.length);
-  if (padTyped === PAD_SECRET) { toggleSecret(); rumble(0.4, 0.8, 300); }
+  for (const c of codes) {
+    if (!PAD_TOKENS[c]) continue;
+    padTyped = (padTyped + PAD_TOKENS[c]).slice(-PAD_MAX);
+    const hit = SECRETS.find((s) => padTyped.endsWith(s.pad));
+    if (hit) { hit.toggle(); rumble(0.4, 0.8, 300); }
+  }
 }
 function toggleSecret() {
-  typed = '';
-  padTyped = '';
+  resetSecrets();
   save.goldbug = !save.goldbug;
   // Back in the real world you only drive what you own.
   if (!owns(veh(save.vehicle))) save.vehicle = VEHICLES[0].id;
@@ -334,7 +346,6 @@ function menuSelect() {
   audio.select();
   const m = MENU[game.menuSel];
   if (m.id === 'garage') renderGarage();
-  else if (m.id === 'kiwi') toggleKiwi();
   else if (m.id === 'howto') renderHowTo();
   else if (m.id === 'pad') renderPadSetup();
   else if (m.id === 'free') renderFree();

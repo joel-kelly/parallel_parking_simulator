@@ -92,9 +92,10 @@ turn it off or on.
     statue of the mayor. At the far end is a ramp: hit it straight for big air;
     land wrong and you flip, which ends the run. Press ENTER to file the claim early.
   - **Tutorial**: a one-minute guided intro. Runs automatically the first time.
-- **New Zealand Mode**: a menu toggle (or open the game with `?nz` on the end of
-  the address) for anyone about to drive somewhere that keeps left. The whole
-  street is mirrored: you drive on the left and park against the left-hand curb,
+- **New Zealand Mode**: a secret. Type `KIWI` on the main menu, or on a
+  controller press right, left, right, left, X, X (do it again to switch it off).
+  Opening the game with `?nz` on the end of the address also turns it on. It's
+  for anyone about to drive somewhere that keeps left. The whole street is mirrored: you drive on the left and park against the left-hand curb,
   in every mode, with the traffic coming the other way. The instructor turns
   Kiwi and shouts if you drift onto the right, the shops change, and there are
   sheep. Sheep cannot be broken.
