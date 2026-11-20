@@ -191,18 +191,8 @@ export class AIDriver {
     if (this.gaveUp) return inp;
     const go = (vt) => { inp.throttle = speedCtl(v, vt); };
 
-    if (this.phase === 'approach') {
-      const d = P.x0 - pose.x;
-      inp.steer = clamp(0.5 * (P.z0 - pose.z) - 1.6 * pose.a, -1, 1);
-      if (d > 0.05) go(Math.min(this.p.vmax, Math.sqrt(2 * DECEL * d)));
-      else go(0);
-      if ((d <= 0.05 && Math.abs(v) < 0.05) || d < -0.3) { this.phase = 'align'; this.timer = 0; }
-    } else if (this.phase === 'align') {
-      const d = P.x0 - pose.x;
-      inp.steer = clamp(-1.5 * pose.a, -1, 1);
-      if (Math.abs(d) > 0.05) go(Math.sign(d) * Math.min(0.8, Math.sqrt(2 * DECEL * Math.abs(d))));
-      else go(0);
-      if (Math.abs(d) <= 0.05 && Math.abs(v) < 0.03 && this.timer > this.p.pause) this.nextMove(pose);
+    if (this.phase === 'approach' || this.phase === 'align') {
+      this.approachStep(pose, P, inp, go, v);
     } else if (this.phase === 'move') {
       const m = this.move;
       const bounds = spotBounds(this.world, this.spot);
@@ -251,6 +241,24 @@ export class AIDriver {
     return inp;
   }
 }
+
+// Drive along to the start pose (P.x0, P.z0, heading 0 in the spot frame),
+// stop there, then start the first move. Shared with the car park driver.
+AIDriver.prototype.approachStep = function approachStep(pose, P, inp, go, v) {
+  if (this.phase === 'approach') {
+    const d = P.x0 - pose.x;
+    inp.steer = clamp(0.5 * (P.z0 - pose.z) - 1.6 * pose.a, -1, 1);
+    if (d > 0.05) go(Math.min(this.p.vmax, Math.sqrt(2 * DECEL * d)));
+    else go(0);
+    if ((d <= 0.05 && Math.abs(v) < 0.05) || d < -0.3) { this.phase = 'align'; this.timer = 0; }
+  } else {
+    const d = P.x0 - pose.x;
+    inp.steer = clamp(-1.5 * pose.a, -1, 1);
+    if (Math.abs(d) > 0.05) go(Math.sign(d) * Math.min(0.8, Math.sqrt(2 * DECEL * Math.abs(d))));
+    else go(0);
+    if (Math.abs(d) <= 0.05 && Math.abs(v) < 0.03 && this.timer > this.p.pause) this.nextMove(pose);
+  }
+};
 
 export function speedCtl(v, vt) {
   if (vt === 0) {

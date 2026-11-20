@@ -4,12 +4,16 @@
 //     (if the AI can do it, the spot is physically possible for a human too);
 //  2. every Career level has a parkable spot (with the hazards that don't
 //     change how the car drives switched on);
-//  3. traffic and pedestrians run for a while without anyone exploding.
+//  3. traffic and pedestrians run for a while without anyone exploding;
+//  4. the shrinking spot stays parkable;
+//  5. in the car park, the AI can back every vehicle into the stall at every
+//     difficulty, on either side, and the busy car park runs without trouble.
 import { buildLevel, DIFFICULTIES, rng } from '../src/sim/level.js';
 import { VEHICLES, FOOD_VEHICLES, vehicleById } from '../src/sim/vehicles.js';
 import { World } from '../src/sim/world.js';
 import { AIDriver, AI_PROFILES, planPark } from '../src/sim/ai.js';
 import { CAREER } from '../src/sim/career.js';
+import { LotDriver, makeDriver } from '../src/sim/lotai.js';
 import { DRIVING_MODS, RANDOM_POOL } from '../src/sim/mods.js';
 
 let failures = 0;
@@ -49,9 +53,10 @@ for (const [lv, leftHand] of CAREER.flatMap((l) => [[l, false], [l, true]])) {
   const level = buildLevel({ mode: lv.mode || 'test', difficulty: lv.diff, vehicle: veh, seed: 5, mods, leftHand });
   const opts = { rand: rng(5) };
   if (lv.mode === 'race') { opts.aiSpec = veh; opts.aiProfile = AI_PROFILES[lv.diff]; }
+  if (level.lot) { level.traffic = []; level.peds = 0; level.leavers = []; } // the stall, not the shoppers, is on trial
   const world = new World(level, veh, opts);
   if (level.mods.has('hidden') && world.playerSpots.length < 4) fail(`${lv.id}: mystery street has only ${world.playerSpots.length} gaps`);
-  const pd = new AIDriver(world, world.player, world.playerSpot, AI_PROFILES.insane, rng(7));
+  const pd = makeDriver(world, world.player, world.playerSpot, AI_PROFILES.insane, rng(7));
   let t = 0;
   const dt = 1 / 60;
   while (t < 90 && !world.player.parked) { world.step(dt, pd.update(dt)); t += dt; }
@@ -96,6 +101,48 @@ for (const leftHand of [false, true]) {
   if (world.shrunk < 1) fail(`spot should have shrunk, moved ${world.shrunk.toFixed(2)}m`);
   if (!plan) fail('shrunk spot is no longer parkable');
   else if (verbose) console.log(`shrink: moved ${world.shrunk.toFixed(2)}m, still parkable in ${plan.moves} moves`);
+}
+
+// 5. The car park: back every vehicle into the stall, every difficulty, keeping right and keeping left.
+const lotFmt = (c, d) => `parked=${c.parked} moves=${c.moves}/${d.plan_.moves} t=${(c.parkedAt || 0).toFixed(1)} dings=${c.dings} hops=${c.curbHops} phase=${d.phase} ` +
+  (c.lastEval ? `ang=${c.lastEval.angle.toFixed(1)} back=${c.lastEval.backGap.toFixed(2)} off=${c.lastEval.offCentre.toFixed(2)} noseIn=${c.lastEval.noseIn}` : '');
+for (const veh of [...VEHICLES, FOOD_VEHICLES[0]]) {
+  for (const diff of DIFFICULTIES) {
+    for (const [seed, leftHand] of [[1, false], [3, true]]) {
+      const level = buildLevel({ mode: 'lot', difficulty: diff.id, vehicle: veh, seed, leftHand, food: !!veh.look });
+      const spot = level.spots[0];
+      if (spot.kind !== 'stall' || (leftHand ? spot.nz > 0 : spot.nz < 0)) fail(`lot: the stall should be on the ${leftHand ? 'left' : 'right'} of the aisle`);
+      level.traffic = []; level.peds = 0; level.leavers = [];
+      const world = new World(level, veh, { rand: rng(seed) });
+      const pd = new LotDriver(world, world.player, world.playerSpot, AI_PROFILES.insane, rng(seed + 9));
+      let t = 0;
+      while (t < 90 && !world.player.parked) { world.step(1 / 60, pd.update(1 / 60)); t += 1 / 60; }
+      const pl = world.player;
+      const ok = pl.parked && pl.dings === 0 && pl.curbHops === 0 && !pl.finalEval.noseIn && pl.moves <= pd.plan_.moves + 1 && pd.plan_.moves < 9;
+      if (!ok) failures++;
+      if (!ok || verbose) console.log(`${ok ? 'ok  ' : 'FAIL'} lot ${veh.id.padEnd(8)} ${diff.id.padEnd(7)} s${seed}${leftHand ? ' NZ' : '   '} | ${lotFmt(pl, pd)}`);
+    }
+  }
+}
+// ...and the full Saturday experience: spot hunters, leavers, shoppers, carts, all hazards. Nothing NaN, things happen.
+for (const leftHand of [false, true]) {
+  const veh = vehicleById('bean');
+  const level = buildLevel({ mode: 'lot', difficulty: 'normal', vehicle: veh, seed: 8, mods: ['traffic', 'peds', 'quake'], leftHand });
+  const world = new World(level, veh, { rand: rng(8) });
+  if (world.carts.length < 5) fail(`lot should have carts, got ${world.carts.length}`);
+  if (!world.traffic.cars.some((c) => c.leaving)) fail('lot should have cars waiting to back out');
+  const pd = new LotDriver(world, world.player, world.playerSpot, AI_PROFILES.normal, rng(2));
+  const seen = new Set();
+  for (let t = 0; t < 60; t += 1 / 60) {
+    world.step(1 / 60, world.player.parked ? { throttle: 0, steer: 0 } : pd.update(1 / 60));
+    for (const e of world.drainEvents()) seen.add(e.type);
+  }
+  const bad = [...world.cars, ...world.parked, ...world.carts].filter((c) => !Number.isFinite(c.body.x + c.body.z + c.body.a + c.body.vx));
+  if (bad.length) fail(`lot: ${bad.length} bodies went non-finite`);
+  for (const p of world.peds.list) if (!Number.isFinite(p.x + p.z + p.y)) fail('lot: a shopper went non-finite');
+  if (!seen.has('backout')) fail('lot: nobody backed out in a minute');
+  const gone = world.traffic.cars.filter((c) => c.leaving === 'gone').length;
+  if (verbose) console.log(`lot soak${leftHand ? ' NZ' : ''}: events=${[...seen].join(',')} leavers gone=${gone} player parked=${world.player.parked} dings=${world.player.dings}`);
 }
 
 console.log(failures ? `${failures} failures` : 'all parked cleanly');

@@ -6,13 +6,14 @@ import { VEHICLES } from './vehicles.js';
 import { CAREER } from './career.js';
 import { AI_PROFILES } from './ai.js';
 
-const test = (r) => r && (r.simMode === 'test') && r.parked;
+const test = (r) => r && (r.simMode === 'test' || r.simMode === 'lot') && r.parked;
+const lot = (r) => r && r.simMode === 'lot' && r.parked;
 
 export const TROPHIES = [
   { id: 'first', name: 'LICENSED-ISH', desc: 'Park a car. Any car. Anywhere legal.', check: (s, r) => test(r) },
   { id: 's_rank', name: 'PARKING DEITY', desc: 'Earn an S grade.', check: (s, r) => test(r) && r.letter === 'S' },
   { id: 'insane_s', name: 'PHYSICS COMPLAINT', desc: 'S grade on an Insane spot.', check: (s, r) => test(r) && r.letter === 'S' && r.diff === 'insane' },
-  { id: 'one_move', name: 'ONE AND DONE', desc: 'Park a Hard or Insane spot in a single move.', check: (s, r) => test(r) && r.car.moves <= 1 && (r.diff === 'hard' || r.diff === 'insane') },
+  { id: 'one_move', name: 'ONE AND DONE', desc: 'Park a Hard or Insane spot in a single move.', check: (s, r) => test(r) && r.simMode === 'test' && r.car.moves <= 1 && (r.diff === 'hard' || r.diff === 'insane') },
   { id: 'fast', name: 'DRIVE-THRU', desc: 'Park in under 12 seconds.', check: (s, r) => test(r) && r.time < 12 },
   { id: 'pinata', name: 'PINATA', desc: 'Ten dings in one driving test. Then park anyway.', check: (s, r) => test(r) && r.car.dings >= 10 },
   { id: 'hops', name: 'CURB YOUR ENTHUSIASM', desc: 'Hop the curb five times in one run.', check: (s, r) => r && r.car.curbHops >= 5 },
@@ -35,11 +36,15 @@ export const TROPHIES = [
   { id: 'ambi', name: 'AMBIDEXTROUS', desc: 'A grade or better with the steering reversed.', check: (s, r) => test(r) && r.mods.has('mirror') && (r.letter === 'A' || r.letter === 'S') },
   { id: 'skater', name: 'FIGURE SKATER', desc: 'Park on Black Ice with no dings.', check: (s, r) => test(r) && r.mods.has('ice') && r.car.dings === 0 },
   { id: 'owl', name: 'NIGHT OWL', desc: 'Park in the dark with no dings.', check: (s, r) => test(r) && r.mods.has('night') && r.car.dings === 0 },
-  { id: 'squeeze', name: 'SARDINE', desc: 'Earn the Tight Squeeze bonus on Mystery Street.', check: (s, r) => test(r) && r.hidden && r.spotSpare < 1.0 },
+  { id: 'squeeze', name: 'SARDINE', desc: 'Earn the Tight Squeeze bonus on Mystery Street (or in a mystery car park).', check: (s, r) => test(r) && r.hidden && r.spotSpare < (r.simMode === 'lot' ? 0.8 : 1.0) },
   { id: 'daily', name: 'HABIT FORMING', desc: 'Complete a Daily Dare.', check: (s) => Object.keys(s.daily).length >= 1 },
   { id: 'daily5', name: 'REGULAR', desc: 'Complete five Daily Dares.', check: (s) => Object.keys(s.daily).length >= 5 },
   { id: 'honker', name: 'ROAD RAGE', desc: 'Honk the horn 100 times. In total. We counted.', check: (s) => s.honks >= 100 },
   { id: 'speed', name: 'SPEED DEMON', desc: 'Hit 100 km/h. In a parking game.', check: (s) => s.topSpeed >= 100 },
+  { id: 'backin', name: 'GETAWAY DRIVER', desc: 'Back into a stall at Bulkzilla. Nose out.', check: (s, r) => lot(r) && !r.noseIn },
+  { id: 'backin_s', name: 'NOSE OUT, CHIN UP', desc: 'S grade backing into a stall.', check: (s, r) => lot(r) && !r.noseIn && r.letter === 'S' },
+  { id: 'nosein', name: 'WRONG END', desc: 'Park nose-in when you were told to back in.', check: (s, r) => lot(r) && r.noseIn },
+  { id: 'carts', name: 'CART BEFORE THE HORSE', desc: 'Hit five shopping carts in one run.', check: (s, r) => r && (r.car.cartHits || 0) >= 5 },
   { id: 'rich', name: 'OLD MONEY', desc: 'Earn 20,000 points in total.', check: (s) => s.totalEarned >= 20000 },
 ];
 

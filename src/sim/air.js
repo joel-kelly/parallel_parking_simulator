@@ -6,6 +6,7 @@
 // pitch > 0 is nose up. roll > 0 is the right side (+side axis) up.
 import { CURB, SIDEWALK_H } from './level.js';
 import { centreAhead } from './vehicles.js';
+import { raisedHeight } from './lot.js';
 
 export const G = 9.8;
 const K_WHEEL = 80, C_WHEEL = 7;    // per wheel, per unit mass
@@ -33,7 +34,12 @@ export function rampHeightClamped(ramp, x, z) {
 }
 
 export function groundHeight(level, x, z) {
-  return Math.max(curbHeight(z), rampHeight(level.ramp, x, z));
+  return Math.max(curbAt(level, x, z), rampHeight(level.ramp, x, z));
+}
+
+// Height of the curbs, sidewalks and planters (not the ramp) at a point.
+export function curbAt(level, x, z) {
+  return level.lot ? raisedHeight(level, x, z) : curbHeight(z);
 }
 
 function curbHeight(z) {
@@ -103,7 +109,7 @@ export function stepAir(car, level, dt, emit) {
     const [f, l, u, isWheel] = pts[i];
     const wx = b.x + ca * f - sa * l, wz = b.z + sa * f + ca * l;
     const rh = rampHeight(level.ramp, wx, wz);
-    const g = Math.max(curbHeight(wz), rh);
+    const g = Math.max(curbAt(level, wx, wz), rh);
     // Only the ramp shoves wheels upward as they roll along it; curbs just
     // push back through the springs, so they jolt instead of launching you.
     const prev = car.prevG[i];

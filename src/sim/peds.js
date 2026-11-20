@@ -15,6 +15,7 @@ export class Pedestrians {
     this.list = [];
     const r = world.rand, lv = world.level;
     const pick = (arr) => arr[Math.floor(r() * arr.length)];
+    if (lv.lot) { this.initLot(n); return; }
     for (let i = 0; i < n; i++) {
       const side = r() < 0.5 ? 1 : -1;
       this.list.push({
@@ -35,7 +36,63 @@ export class Pedestrians {
     }
   }
 
+  // Car park shoppers: they walk the walkways between the store and their
+  // cars (straight across the aisles, naturally), some pushing a cart, and
+  // stop mid-aisle to read the receipt.
+  initLot(n) {
+    const r = this.world.rand, L = this.world.level.lot;
+    const pick = (arr) => arr[Math.floor(r() * arr.length)];
+    for (let i = 0; i < n; i++) {
+      const x = pick(L.walkways) + (r() - 0.5) * 1.6;
+      const z = L.zFar + r() * (L.storeFace - L.zFar - 1);
+      this.list.push({
+        id: i, x, z, y: 0, side: r() < 0.5 ? 1 : -1, facing: 1, state: 'cross', t: 0, speed: 1.1 + r() * 0.4,
+        vx: 0, vz: 0, vy: 0, shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKINS), hat: r() < 0.35,
+        scaredT: 0, phase: r() * 6, waited: false, hurried: false, cart: r() < 0.55, walkX: x, tz: 0,
+      });
+      this.lotTarget(this.list[i]);
+    }
+  }
+
+  // Off to the store, or back to the car.
+  lotTarget(p) {
+    const r = this.world.rand, L = this.world.level.lot;
+    const toStore = p.z < L.zStore - 4 ? r() < 0.7 : false;
+    p.tz = toStore ? L.zStore + 2 + r() * 2 : L.zFar + 1 + r() * (L.zStore - L.zFar - 4);
+    p.side = Math.sign(p.tz - p.z) || 1;
+    p.waited = r() < 0.4; // only some of them stop in the road
+    p.state = 'cross';
+  }
+
+  stepLot(dt) {
+    const L = this.world.level.lot, r = this.world.rand;
+    for (const p of this.list) {
+      p.t -= dt;
+      if (p.scaredT > 0) p.scaredT -= dt;
+      if (p.state === 'dive') {
+        p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt; p.vy -= 22 * dt;
+        if (p.y <= 0) { p.y = 0; p.state = 'cross'; p.speed = HURRY; p.hurried = true; p.waited = true; p.side = Math.sign(p.tz - p.z) || 1; }
+        continue;
+      }
+      if (p.state === 'cross') {
+        const dz = Math.sign(p.tz - p.z) || 1;
+        p.side = dz;
+        p.z += dz * p.speed * dt;
+        p.x += (p.walkX - p.x) * Math.min(1, dt * 0.8); // drift back to the walkway after a dive
+        p.phase += dt * (p.speed > WALK ? 14 : 6);
+        if (!p.waited && L.aisles.some((az) => Math.abs(p.z - az) < 0.3)) { p.waited = true; p.state = 'wait'; p.t = 2 + r() * 4; }
+        if ((p.tz - p.z) * dz <= 0) { p.state = 'wait'; p.t = 1.5 + r() * 4; p.atEnd = true; p.speed = 1.1 + r() * 0.4; }
+      } else if (p.state === 'wait') {
+        if (p.t <= 0) {
+          if (p.atEnd) { p.atEnd = false; this.lotTarget(p); } else { p.state = 'cross'; p.speed = WALK; }
+        }
+      }
+      this.watch(p);
+    }
+  }
+
   step(dt) {
+    if (this.world.level.lot) { this.stepLot(dt); return; }
     const lv = this.world.level, r = this.world.rand;
     for (const p of this.list) {
       p.t -= dt;
@@ -68,15 +125,19 @@ export class Pedestrians {
         }
         continue;
       }
-      // Anything bearing down on them? Dive.
-      for (const c of this.world.cars) {
-        if (c.off || c.body.sleeping || Math.abs(c.speed) < 0.8) continue;
-        const b = c.body;
-        const [lx, lz] = toLocal(b, p.x, p.z);
-        const reach = 1.4 + Math.abs(c.speed) * 0.3;
-        const inPath = c.speed > 0 ? (lx > 0 && lx < b.hl + reach) : (lx < 0 && lx > -b.hl - reach);
-        if (Math.abs(lz) < b.hw + 0.6 && (inPath || Math.abs(lx) < b.hl + 0.2)) { this.dive(p, c, lz); break; }
-      }
+      this.watch(p);
+    }
+  }
+
+  // Anything bearing down on them? Dive.
+  watch(p) {
+    for (const c of this.world.cars) {
+      if (c.off || c.body.sleeping || Math.abs(c.speed) < 0.8) continue;
+      const b = c.body;
+      const [lx, lz] = toLocal(b, p.x, p.z);
+      const reach = 1.4 + Math.abs(c.speed) * 0.3;
+      const inPath = c.speed > 0 ? (lx > 0 && lx < b.hl + reach) : (lx < 0 && lx > -b.hl - reach);
+      if (Math.abs(lz) < b.hw + 0.6 && (inPath || Math.abs(lx) < b.hl + 0.2)) { this.dive(p, c, lz); break; }
     }
   }
 

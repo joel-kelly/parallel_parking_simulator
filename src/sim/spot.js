@@ -5,12 +5,21 @@ import { corners } from './physics.js';
 // spot.dir is the traffic direction (+1 = +x). spot.hand is +1 when the curb
 // is on the driver's right and -1 when it's on their left (New Zealand mode),
 // in which case the frame is a mirror image, so angles and steering flip too.
+//
+// Car park stalls (spot.kind === 'stall') have their own frame: origin on the
+// stall's open edge, +x' = (ux, uz) along the aisle, +z' = (nx, nz) into the
+// stall; hand = -1 when that's a mirror image (stall on the left).
 export function toSpot(spot, x, z) {
+  if (spot.kind === 'stall') {
+    const dx = x - spot.ox, dz = z - spot.oz;
+    return [dx * spot.ux + dz * spot.uz, dx * spot.nx + dz * spot.nz];
+  }
   return [spot.dir * (x - spot.cx), spot.dir * spot.hand * (z - spot.cz)];
 }
 
 // A world heading as an angle in the spot frame (0 = along the traffic).
 export function spotAngle(spot, a) {
+  if (spot.kind === 'stall') return spot.hand * wrapAngle(a - Math.atan2(spot.uz, spot.ux));
   return spot.hand * wrapAngle(a - (spot.dir > 0 ? 0 : Math.PI));
 }
 

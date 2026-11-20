@@ -3,9 +3,10 @@ import { driveCar, centreAhead, makeCar, NITRO_MAX } from './vehicles.js';
 import { PROPS, CURB, BUILDING_FACADE_HIT, BUILDING_COLLAPSE } from './level.js';
 import { AIDriver } from './ai.js';
 import { evaluatePark, spotBounds } from './spot.js';
+import { evaluateStall } from './lot.js';
 import { Traffic } from './traffic.js';
 import { Pedestrians } from './peds.js';
-import { initAir, stepAir, carBottomAt, rampHeightClamped, RAMP_STEP } from './air.js';
+import { initAir, stepAir, carBottomAt, rampHeightClamped, RAMP_STEP, curbAt } from './air.js';
 
 const SUB = 1 / 120;
 const PARK_HOLD = 1.5; // seconds stationary in the spot to count as parked
@@ -54,6 +55,16 @@ export class World {
 
     this.walls = level.walls.map((w) => makeBody({ ...w, isStatic: true, restitution: 0.15, friction: 0.7 }));
 
+    // Shopping carts: light, free-rolling, everywhere.
+    this.carts = (level.carts || []).map((c) => {
+      const body = makeBody({
+        kind: 'cart', x: c.x, z: c.z, a: c.a, hl: 0.48, hw: 0.3,
+        mass: 30, restitution: 0.35, friction: 0.3, linDamp: 0.5, angDamp: 1.2,
+      });
+      body.sleeping = true;
+      return { body, hits: 0 };
+    });
+
     this.playerSpots = level.spots.filter((s) => s.owner === 'player');
     this.playerSpot = this.playerSpots[0] || null;
     this.ai = null;
@@ -72,11 +83,12 @@ export class World {
     this.buildings = level.buildings.map((info, i) => ({
       info, damage: 0, facade: false, collapsed: false, body: this.walls.find((w) => w.building === i),
     }));
-    this.dynamics = [...this.cars.map((c) => c.body), ...this.parked.map((p) => p.body)];
+    this.dynamics = [...this.cars.map((c) => c.body), ...this.parked.map((p) => p.body), ...this.carts.map((c) => c.body)];
     this.bodyOwner = new Map();
     for (const c of this.cars) this.bodyOwner.set(c.body, { car: c });
     for (const p of this.parked) this.bodyOwner.set(p.body, { parked: p });
     for (const p of this.props) this.bodyOwner.set(p.body, { prop: p });
+    for (const c of this.carts) this.bodyOwner.set(c.body, { cart: c });
     this.traffic.settle();
 
     // hazards
@@ -139,6 +151,13 @@ export class World {
       }
       if (sp < 0.03 && Math.abs(b.w) < 0.03) { b.vx = b.vz = b.w = 0; b.sleeping = true; }
     }
+    for (const ct of this.carts) {
+      const b = ct.body;
+      if (b.sleeping) continue;
+      const sp = Math.hypot(b.vx, b.vz);
+      if (sp > 0) { const k = Math.max(0, sp - 0.8 * dt) / sp; b.vx *= k; b.vz *= k; }
+      if (sp < 0.03 && Math.abs(b.w) < 0.05) { b.vx = b.vz = b.w = 0; b.sleeping = true; }
+    }
 
     for (const b of this.dynamics) if (!b.sleeping) integrate(b, dt);
     this.collide();
@@ -154,6 +173,7 @@ export class World {
         if (this.quakeKick <= 0) {
           this.quakeKick = 0.3;
           for (const pk of this.parked) this.kick(pk.body, 1.6);
+          for (const ct of this.carts) this.kick(ct.body, 1.2);
           for (const c of this.cars) if (!c.off) this.kick(c.body, 0.6);
         }
       } else {
@@ -166,7 +186,7 @@ export class World {
         }
       }
     }
-    if (this.mods.has('shrink') && this.playerSpot && !this.player.parked) {
+    if (this.mods.has('shrink') && this.playerSpot && this.playerSpot.kind !== 'stall' && !this.player.parked) {
       const spot = this.playerSpot;
       const front = this.parked[spot.frontCar].body;
       const bounds = spotBounds(this, spot);
@@ -264,6 +284,8 @@ export class World {
     }
     if (o && o.parked) return [0, o.parked.info.height];
     if (o && o.prop) return [0, o.prop.def.h];
+    if (o && o.cart) return [0, 1.1];
+    if (body.h) return [-1, body.h];
     // The ramp only blocks you where its edge is too tall to drive up.
     if (body.kind === 'ramp') return [-1, rampHeightClamped(this.level.ramp, px, pz) - RAMP_STEP];
     return [-Infinity, Infinity];
@@ -290,6 +312,11 @@ export class World {
           this.emit({ type: 'ding', car, impact, x: c.px, z: c.pz, other, otherCar: otherOwner.car || null, prop: otherOwner.prop || null });
         }
         car.lastHit.set(other, this.time);
+        const otherOwner = this.bodyOwner.get(other) || {};
+        if (otherOwner.cart && this.time - last > 0.6) {
+          car.cartHits = (car.cartHits || 0) + 1;
+          this.emit({ type: 'cart', car, x: c.px, z: c.pz, impact });
+        }
       }
       if (o.parked) {
         const pk = o.parked;
@@ -337,7 +364,7 @@ export class World {
     if (this.playerSpots.length <= 1) return this.playerSpot;
     let best = null, bd = Infinity;
     for (const s of this.playerSpots) {
-      const d = Math.abs(s.cx - car.body.x);
+      const d = s.kind === 'stall' ? Math.hypot(s.cx - car.body.x, s.cz - car.body.z) : Math.abs(s.cx - car.body.x);
       if (d < bd) { bd = d; best = s; }
     }
     return best;
@@ -368,8 +395,8 @@ export class World {
     const wheels = [[front, hw], [front, -hw], [back, -hw], [back, hw]];
     let on = 0;
     wheels.forEach(([f, l], i) => {
-      const z = b.z + sn * f + c * l;
-      const onCurb = Math.abs(z) > CURB;
+      const x = b.x + c * f - sn * l, z = b.z + sn * f + c * l;
+      const onCurb = this.level.lot ? curbAt(this.level, x, z) > 0.03 : Math.abs(z) > CURB;
       car.wheelH[i] = onCurb ? 1 : 0;
       if (onCurb) on++;
     });
@@ -384,7 +411,7 @@ export class World {
     if (!(car.isPlayer || car.isAI)) return;
     const spot = car.isAI ? (this.ai && this.ai.spot) : this.nearestSpot(car);
     if (!spot || car.parked || this.level.mode === 'wreck') return;
-    const ev = evaluatePark(this, car, spot);
+    const ev = spot.kind === 'stall' ? evaluateStall(this, car, spot) : evaluatePark(this, car, spot);
     car.lastEval = ev;
     car.lastSpot = spot;
     const still = Math.abs(car.speed) < 0.08 && Math.abs(b.w) < 0.05;
