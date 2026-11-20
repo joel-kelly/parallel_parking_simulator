@@ -110,9 +110,10 @@ turn it off or on.
   the backup camera (mirrored, like the real thing) with guide lines that bend as
   you steer and a parking sensor; the reversing beeper speeds up as you get close.
   In New Zealand Mode the wheel moves to the right.
-- **New Zealand Mode**: a menu toggle (or open the game with `?nz` on the end of
-  the address) for anyone about to drive somewhere that keeps left. The whole
-  street is mirrored: you drive on the left and park against the left-hand curb,
+- **New Zealand Mode**: a secret. Type `KIWI` on the main menu, or on a
+  controller press right, left, right, left, X, X (do it again to switch it off).
+  Opening the game with `?nz` on the end of the address also turns it on. It's
+  for anyone about to drive somewhere that keeps left. The whole street is mirrored: you drive on the left and park against the left-hand curb,
   in every mode, with the traffic coming the other way. The instructor turns
   Kiwi and shouts if you drift onto the right, the shops change, and there are
   sheep. Sheep cannot be broken.
