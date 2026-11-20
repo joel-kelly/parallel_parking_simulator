@@ -1,5 +1,6 @@
 import { NPC_CARS, NPC_COLORS, foodNpc } from './vehicles.js';
 import { surfaceGrip } from './mods.js';
+import { buildLot } from './lot.js';
 
 export const CURB = 6.5;          // |z| of the curb line
 export const SIDEWALK = 4.0;      // sidewalk depth
@@ -40,6 +41,10 @@ export const PROPS = {
   statue: { hl: 0.7, hw: 0.7, h: 3.7, breakSpeed: 3.5, value: 9000, name: 'STATUE OF THE MAYOR' },
   // New Zealand mode only. Sheep cannot be broken. Sheep have right of way.
   sheep: { hl: 0.45, hw: 0.25, h: 1.0, breakSpeed: Infinity, value: 0, name: 'SHEEP' },
+  // The car park.
+  shrub: { hl: 0.5, hw: 0.5, h: 1.0, breakSpeed: 1.6, value: 80, name: 'DECORATIVE SHRUB' },
+  bollard: { hl: 0.14, hw: 0.14, h: 1.0, breakSpeed: 6, value: 300, name: 'BOLLARD (IT WON)' },
+  samples: { hl: 0.8, hw: 0.4, h: 1.0, breakSpeed: 1.2, value: 650, name: 'FREE SAMPLE TABLE' },
 };
 
 const SHOPS = [
@@ -77,7 +82,7 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 
 /**
  * Builds a level description (plain data, no physics or graphics).
- * mode: 'test' | 'race' | 'wreck'
+ * mode: 'test' | 'race' | 'wreck' | 'lot' (a car park: back into a stall, see lot.js)
  * mods: array of modifier ids (see mods.js)
  * margin: overrides the difficulty's spare room (used by the Valet Shift)
  * food: every parked and traffic car is dressed as food (the secret mode)
@@ -87,6 +92,7 @@ const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 export function buildLevel({ mode, difficulty = 'normal', vehicle, seed = Date.now(), mods = [], margin, leftHand = false, food = false }) {
   const r = rng(seed);
   const diff = DIFFICULTIES.find((d) => d.id === difficulty) || DIFFICULTIES[1];
+  if (mode === 'lot') return buildLot({ difficulty: diff, vehicle, seed, mods, margin, leftHand, food, r });
   const modSet = new Set(mods);
   const hidden = modSet.has('hidden') && mode === 'test';
   const xMin = mode === 'wreck' ? -120 : -70;

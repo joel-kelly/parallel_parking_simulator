@@ -1,6 +1,9 @@
 // Traffic: NPC cars that cruise along a lane (lane.dir is the direction of
-// travel; which side of the road that puts them on depends on level.hand), brake for anything in the way,
+// travel; which side of the road that puts them on depends on level.hand,
+// unless the lane gives its own z), brake for anything in the way,
 // honk at you when you're the thing in the way, and loop around off-screen.
+// In the car park some of them start out parked and back out when you come
+// past ("leavers"), without looking, as is traditional.
 import { makeCar, trafficSpec, driveCar } from './vehicles.js';
 import { LANE, CURB } from './level.js';
 import { collideOBB } from './physics.js';
@@ -9,6 +12,7 @@ import { speedCtl, clamp } from './ai.js';
 import { initAir } from './air.js';
 
 const FAR = 5000; // where cars wait between laps (nothing is out there)
+const laneZ = (lane, lv) => lane.z ?? lane.dir * lv.hand * LANE;
 
 export class Traffic {
   constructor(world, lanes) {
@@ -21,7 +25,7 @@ export class Traffic {
       for (let i = 0; i < lane.count; i++) {
         const spec = trafficSpec(world.rand, lv.food);
         const x = lv.xMin + 8 + (i + 0.5) * span / lane.count + (world.rand() - 0.5) * 6;
-        const car = makeCar(spec, { x, z: lane.dir * lv.hand * LANE, a: lane.dir > 0 ? 0 : Math.PI }, 'car');
+        const car = makeCar(spec, { x, z: laneZ(lane, lv), a: lane.dir > 0 ? 0 : Math.PI }, 'car');
         initAir(car);
         car.isTraffic = true;
         car.lane = lane;
@@ -33,17 +37,34 @@ export class Traffic {
         this.cars.push(car);
       }
     }
+    // Parked cars that are about to leave.
+    for (const lv0 of lv.leavers || []) {
+      const spec = {
+        ...lv0, id: 'npc', name: 'SOMEONE LEAVING', accent: lv0.accent ?? 0xffffff,
+        wheelbase: lv0.length * 0.62, rearOverhang: lv0.length * 0.19,
+        maxSteer: 0.62, accel: 3.5, maxSpeed: 12, maxReverse: 2.2, mass: 1400, wheelRadius: 0.32,
+      };
+      const car = makeCar(spec, { x: lv0.x, z: lv0.z, a: lv0.a }, 'car');
+      initAir(car);
+      Object.assign(car, {
+        isTraffic: true, lane: lv0.lane, blockedT: 0, honkT: 0, off: false, offT: 0,
+        leaving: 'wait', leaver: lv0, leaveT: 0,
+      });
+      world.cars.push(car);
+      this.cars.push(car);
+    }
   }
 
   // Called once the world has every body: don't start on top of anything.
   settle() {
-    for (const c of this.cars) if (this.overlapsAny(c.body, c, 2.5)) this.park(c, 1 + this.world.rand() * 3);
+    for (const c of this.cars) if (!c.leaving && this.overlapsAny(c.body, c, 2.5)) this.park(c, 1 + this.world.rand() * 3);
   }
 
   overlapsAny(body, self, pad) {
     const probe = { x: body.x, z: body.z, a: body.a, hl: body.hl + pad, hw: body.hw + 0.3 };
     for (const o of this.world.cars) if (o !== self && !o.off && collideOBB(probe, o.body)) return true;
     for (const pk of this.world.parked) if (collideOBB(probe, pk.body)) return true;
+    for (const ct of this.world.carts) if (collideOBB(probe, ct.body)) return true;
     return false;
   }
 
@@ -61,7 +82,7 @@ export class Traffic {
   spawn(c) {
     const lv = this.world.level, b = c.body, dir = c.lane.dir;
     b.x = dir > 0 ? lv.xMin + 6 : (c.lane.xMax ?? lv.xMax) - 6;
-    b.z = dir * lv.hand * LANE;
+    b.z = laneZ(c.lane, lv);
     b.a = dir > 0 ? 0 : Math.PI;
     b.vx = b.vz = b.w = 0;
     c.steer = 0;
@@ -78,18 +99,56 @@ export class Traffic {
         if (c.offT > 0 || !this.spawn(c)) continue;
         c.off = false;
       }
-      driveCar(c, this.drive(c, dt), dt, this.world.grip, !c.airborne);
+      const input = c.leaving && c.leaving !== 'gone' ? this.leave(c, dt) : this.drive(c, dt);
+      driveCar(c, input, dt, this.world.grip, !c.airborne);
       const b = c.body;
       const hi = c.lane.xMax ?? lv.xMax;
       if ((c.lane.dir > 0 && b.x > hi - 5) || (c.lane.dir < 0 && b.x < lv.xMin + 5)) this.park(c, 0.5 + this.world.rand() * 3);
     }
   }
 
+  // A parked car pulling out: wait for someone to come past, then reverse out
+  // of the stall, swing round to face along the aisle, and join the traffic.
+  leave(c, dt) {
+    const w = this.world, b = c.body, lv0 = c.leaver;
+    const hold = { throttle: 0, steer: 0, handbrake: true };
+    c.leaveT += dt;
+    if (c.leaving === 'wait') {
+      const p = w.player;
+      const near = Math.abs(p.body.x - b.x) < lv0.trigger && Math.abs(p.body.z - lv0.lane.z) < 8 && !p.parked;
+      if (near && c.leaveT > 3) {
+        c.leaving = 'out';
+        w.emit({ type: 'backout', car: c, x: b.x, z: b.z });
+      }
+      return hold;
+    }
+    // Something right behind? Stop and lean on the horn (it is your fault, apparently).
+    const back = { x: b.x - Math.cos(b.a) * (b.hl + 0.9), z: b.z - Math.sin(b.a) * (b.hl + 0.9), a: b.a, hl: 0.9, hw: b.hw + 0.1 };
+    let blocked = false;
+    for (const o of w.cars) if (o !== c && !o.off && collideOBB(back, o.body)) { blocked = o; break; }
+    if (blocked) {
+      c.honkT -= dt;
+      if (blocked.isPlayer && c.honkT <= 0) { c.honkT = 2 + w.rand() * 2; w.emit({ type: 'honk', car: c, x: b.x, z: b.z }); }
+      return { throttle: speedCtl(c.speed, 0), steer: 0, handbrake: false };
+    }
+    const laneA = c.lane.dir > 0 ? 0 : Math.PI;
+    const ea = wrapAngle(laneA - b.a);
+    // depth of the car's centre past the stall's open edge, into the aisle
+    const out = (lv0.rowOpen - b.z) * lv0.rowN;
+    if (c.leaving === 'out') {
+      if (out > b.hl * 0.3) c.leaving = 'turn';
+      return { throttle: speedCtl(c.speed, -1.3), steer: 0, handbrake: false };
+    }
+    // reversing: steering away from where you want the nose to go turns it there
+    if (Math.abs(ea) < 0.2 || out > 6) { c.leaving = 'gone'; return this.drive(c, dt); }
+    return { throttle: speedCtl(c.speed, -1.3), steer: -Math.sign(ea), handbrake: false };
+  }
+
   drive(c, dt) {
     const b = c.body, dir = c.lane.dir;
-    const laneA = dir > 0 ? 0 : Math.PI, laneZ = dir * this.world.level.hand * LANE;
+    const laneA = dir > 0 ? 0 : Math.PI, laneZ0 = laneZ(c.lane, this.world.level);
     const ea = wrapAngle(laneA - b.a);
-    const off = (b.z - laneZ) * dir; // > 0: right of the lane centre
+    const off = (b.z - laneZ0) * dir; // > 0: right of the lane centre
     const steer = clamp(-0.5 * off + 1.8 * ea, -1, 1);
 
     // Look ahead for anything in the lane.
@@ -101,6 +160,7 @@ export class Traffic {
       if (collideOBB(ahead, o.body)) { blocked = o; break; }
     }
     if (!blocked) for (const pk of this.world.parked) if (collideOBB(ahead, pk.body)) { blocked = pk; break; }
+    if (!blocked) for (const ct of this.world.carts) if (collideOBB(ahead, ct.body)) { blocked = ct; break; }
 
     let vt = c.lane.speed;
     if (blocked) { vt = 0; c.blockedT += dt; } else c.blockedT = 0;
@@ -112,7 +172,8 @@ export class Traffic {
       }
     }
     // Spun round or shoved onto the sidewalk: stop rather than mow down the town.
-    if (Math.abs(ea) > 1.2 || Math.abs(b.z) > CURB - 0.6) vt = 0;
+    const lost = this.world.level.lot ? Math.abs(b.z - laneZ0) > (c.leaver ? 6.5 : 3.2) : Math.abs(b.z) > CURB - 0.6;
+    if (Math.abs(ea) > 1.2 || lost) vt = 0;
     return { throttle: speedCtl(c.speed, vt), steer, handbrake: false };
   }
 }

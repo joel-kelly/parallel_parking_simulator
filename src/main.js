@@ -5,7 +5,9 @@ import { World } from './sim/world.js';
 import { buildLevel, DIFFICULTIES, rng, CURB } from './sim/level.js';
 import { VEHICLES, FOOD_VEHICLES, NITRO_MAX } from './sim/vehicles.js';
 import { AI_PROFILES, AIDriver, planPark } from './sim/ai.js';
-import { gradePark } from './sim/grading.js';
+import { gradePark, gradeStall } from './sim/grading.js';
+import { makeDriver, planBackIn } from './sim/lotai.js';
+import { LOT_MARGIN, STORE_NAME } from './sim/lot.js';
 import { Tutorial } from './tutorial.js';
 import { MODS, RANDOM_POOL, modNames } from './sim/mods.js';
 import { CAREER, careerUnlocked, careerStars, starsFor, FIRST_CLEAR_BONUS, STAR_BONUS } from './sim/career.js';
@@ -107,7 +109,7 @@ const MENU = [
   { id: 'career', name: 'CAREER', desc: `${CAREER.length} levels of escalating nonsense: traffic, ice, earthquakes, a bus. Earn stars.` },
   { id: 'shift', name: 'VALET SHIFT', desc: 'Endless. Customers keep coming, the spots keep shrinking, the clock keeps ticking. Three strikes.' },
   { id: 'daily', name: 'DAILY DARE', desc: 'One fixed challenge per day. Same for everyone. Brag accordingly.' },
-  { id: 'free', name: 'FREE PLAY', desc: 'Driving Test, Race the AI, Wreck-reation, Tutorial.' },
+  { id: 'free', name: 'FREE PLAY', desc: 'Driving Test, Back It In, Race the AI, Wreck-reation, Tutorial.' },
   { id: 'garage', name: 'GARAGE', desc: 'Spend points on new rides. Paint them badly.' },
   { id: 'trophies', name: 'TROPHIES', desc: 'Achievements. Each one is worth points and smugness.' },
   { id: 'howto', name: 'HOW TO PLAY', desc: 'Controls, hazards, and a short lecture.' },
@@ -115,12 +117,13 @@ const MENU = [
 ];
 const FREE = [
   { id: 'test', name: 'DRIVING TEST', desc: 'Park between two cars. Get graded by a deeply judgemental instructor.' },
+  { id: 'lot', name: 'BACK IT IN', desc: `Saturday at ${STORE_NAME}. A packed car park, feral carts, people backing out without looking. Reverse into the stall, nose out.` },
   { id: 'race', name: 'RACE THE AI', desc: 'First one parked wins. Ramming is frowned upon. Not banned. Frowned upon.' },
   { id: 'wreck', name: 'WRECK-REATION', desc: 'Two minutes before the cops arrive. Smash the town. Chain smashes for combos. SHIFT for nitro.' },
   { id: 'tutorial', name: 'TUTORIAL', desc: 'Learn the controls in about a minute.' },
   { id: 'back', name: 'BACK', desc: '' },
 ];
-const SIM_NAMES = { test: 'DRIVING TEST', race: 'RACE THE AI', wreck: 'WRECK-REATION', tutorial: 'TUTORIAL', career: 'CAREER', shift: 'VALET SHIFT', daily: 'DAILY DARE' };
+const SIM_NAMES = { lot: 'BACK IT IN', test: 'DRIVING TEST', race: 'RACE THE AI', wreck: 'WRECK-REATION', tutorial: 'TUTORIAL', career: 'CAREER', shift: 'VALET SHIFT', daily: 'DAILY DARE' };
 
 const INSTRUCTOR = {
   start: ['Whenever you are ready. I have all day. I do not have all day.', 'Park between the cars. The spot with the big bouncing P. Subtle, I know.', 'Ten and two, please. Or don\'t. I\'m not your mum.'],
@@ -135,6 +138,12 @@ const INSTRUCTOR = {
   creep: ['That driver is backing into your spot. Deal with it.', 'Your spot is shrinking. Like my patience.'],
   timeLow: ['Ten seconds. Tick tock.', 'Time is a flat circle. Yours is almost up.'],
   hidden: ['No marker today. Find a gap you fit in. Any gap.', 'Several gaps. One of them is yours. Tighter ones pay more.'],
+  lotStart: ['Back it in. Like a getaway driver. A law-abiding getaway driver.', 'Find the stall with the P and reverse into it. Nose out, ready to flee.', `Welcome to ${STORE_NAME} on a Saturday. May your bumpers be spared.`],
+  lotHidden: ['No marker. Find an empty stall and back into it. Tighter ones pay more.', 'Somewhere in this car park is a free space. Several, allegedly.'],
+  lotCurb: ['That is a planter. It is not a ramp.', 'You are parked in the shrubbery.', 'Gardening is not on the test.'],
+  cart: ['A cart! Who leaves a cart there?! Everyone. Everyone does.', 'That cart had a family.', 'The carts here are free-range.', 'Ding. That one is coming out of your deposit. And the cart\'s.'],
+  backout: ['Reverse lights! They have not seen you. They will never see you.', 'Incoming! Someone is backing out without looking.', 'Of course they are leaving NOW.', 'Brake! That driver is reversing by faith alone.'],
+  backcam: ['Ooh, the backup camera. Very modern. Still check your mirrors.', 'The screen is not a television. Eyes on the guide lines.'],
 };
 // New Zealand mode: a local instructor takes over the everyday lines.
 const KIWI = {
@@ -272,7 +281,7 @@ function highlightMenu() {
   if (m.id === 'daily') {
     const c = dailyConfig();
     const best = save.daily[c.dailyKey];
-    d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${veh(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
+    d.innerHTML = `${m.desc}<br><span class="k">TODAY:</span> ${c.simMode === 'lot' ? `BACK-IN AT ${STORE_NAME} &bull; ` : ''}${veh(c.vehicle).name} &bull; ${c.diff.toUpperCase()}${c.mods.length ? ' &bull; ' + modNames(new Set(c.mods)).join(' + ') : ''}${c.time ? ` &bull; ${c.time}S LIMIT` : ''}${best != null ? `<br><span class="good">YOUR BEST TODAY: ${best}</span>` : ''}`;
   } else d.textContent = m.desc;
 }
 
@@ -377,7 +386,7 @@ function freeSelect() {
   audio.select();
   const m = FREE[game.freeSel];
   if (m.id === 'back') renderMenu();
-  else if (m.id === 'test' || m.id === 'race') renderDifficulty(m.id);
+  else if (m.id === 'test' || m.id === 'race' || m.id === 'lot') renderDifficulty(m.id);
   else if (m.id === 'wreck') startRun({ kind: 'wreck', mods: ['traffic', 'peds'] });
   else startRun({ kind: 'tutorial' });
 }
@@ -392,8 +401,8 @@ function renderDifficulty(mode) {
   const m = FREE.find((x) => x.id === mode);
   const opp = (d) => (mode === 'race' ? `VS ${AI_PROFILES[d.id].name}${save.beaten.includes(d.id) ? ' (BEATEN)' : ''}` : '');
   const best = (d) => {
-    const b = save.best[`${save.vehicle}:${d.id}`];
-    return mode === 'test' && b ? `BEST ${b}` : '';
+    const b = save.best[`${mode === 'lot' ? 'lot:' : ''}${save.vehicle}:${d.id}`];
+    return (mode === 'test' || mode === 'lot') && b ? `BEST ${b}` : '';
   };
   showScreen(`
     <div class="window" style="max-width:600px">
@@ -401,7 +410,7 @@ function renderDifficulty(mode) {
       <div class="tagline" style="margin-top:0">HOW TIGHT A SPOT CAN YOU HANDLE?</div>
       <ul class="menu" id="diffs">
         ${DIFFICULTIES.map((d, i) => `<li data-i="${i}">${d.name}<span class="desc">${d.blurb}<br>
-          <span style="color:var(--lgreen)">+${d.margin.toFixed(2)}M SPARE &bull; x${d.mult} POINTS</span>
+          <span style="color:var(--lgreen)">+${(mode === 'lot' ? LOT_MARGIN[d.id] : d.margin).toFixed(2)}M ${mode === 'lot' ? 'ELBOW ROOM' : 'SPARE'} &bull; x${d.mult} POINTS</span>
           ${opp(d) || best(d) ? `<br><span style="color:var(--lmagenta)">${opp(d) || best(d)}</span>` : ''}</span></li>`).join('')}
       </ul>
       <div class="hint">W/S + ENTER TO START &bull; ESC TO GO BACK</div>
@@ -449,7 +458,7 @@ function highlightCareer() {
   const l = CAREER[game.careerSel];
   if (!careerUnlocked(save, game.careerSel)) { d.innerHTML = 'LOCKED. EARN A STAR ON THE LEVEL BEFORE IT.'; return; }
   const diff = DIFFICULTIES.find((x) => x.id === l.diff);
-  const bits = [`${l.mode === 'race' ? 'RACE VS ' + AI_PROFILES[l.diff].name : 'DRIVING TEST'} &bull; ${diff.name} SPOT`];
+  const bits = [`${l.mode === 'race' ? 'RACE VS ' + AI_PROFILES[l.diff].name : l.mode === 'lot' ? `BACK IT IN AT ${STORE_NAME}` : 'DRIVING TEST'} &bull; ${diff.name} SPOT`];
   if (l.vehicle) bits.push(`<span class="car">COMPANY CAR: ${veh(l.vehicle).name}</span>`);
   if (l.time) bits.push(`<span class="car">${l.time} SECOND LIMIT</span>`);
   if (l.mods.length) bits.push(`<span class="mods">${l.mods.map((m) => MODS[m].name).join(' + ')}</span>`);
@@ -492,7 +501,8 @@ function dailyConfig() {
   for (let i = 0; i < n; i++) mods.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
   if (r() < 0.2) mods.push('hidden');
   const time = r() < 0.35 ? 60 : 0;
-  return { kind: 'daily', diff, vehicle: vehicle.id, mods, time, seed: seed * 7 + 3, dailyKey: key };
+  const lotDay = r() < 0.25;
+  return { kind: 'daily', simMode: lotDay ? 'lot' : 'test', diff, vehicle: vehicle.id, mods: lotDay ? mods.filter((m) => m !== 'shrink') : mods, time, seed: seed * 7 + 3, dailyKey: key };
 }
 
 // ---- garage ----
@@ -634,7 +644,7 @@ function renderHowTo() {
       <div><span class="k">A D / ARROWS</span> STEER</div>
       <div><span class="k">SPACE</span> HANDBRAKE (DRIFT, IF YOU MUST)</div>
       <div><span class="k">SHIFT</span> NITRO (WRECK-REATION ONLY)</div>
-      <div><span class="k">C</span> CHANGE CAMERA (TOP-DOWN IS GREAT FOR PARKING)</div>
+      <div><span class="k">C</span> CHANGE CAMERA: CHASE, HIGH, TOP-DOWN, AND THE DRIVER'S SEAT WITH THE BACKUP CAMERA ON THE DASH SCREEN</div>
       <div><span class="k">H</span> HORN (MOVES JAYWALKERS ALONG)</div>
       <div><span class="k">R</span> RESTART &nbsp; <span class="k">ESC</span> PAUSE</div>
       <div><span class="k">ENTER</span> CASH OUT EARLY (WRECK MODE)</div>
@@ -648,12 +658,27 @@ function renderHowTo() {
         TO PARK: STOP INSIDE THE SPOT, CLOSE TO THE CURB, MORE OR LESS STRAIGHT, AND HOLD STILL.<br><br>
         CLASSIC TECHNIQUE: PULL UP ALONGSIDE THE FRONT CAR. REVERSE WITH FULL ${save.kiwi ? 'LEFT' : 'RIGHT'} LOCK
         UNTIL YOU'RE AT ~45&deg;. THEN FULL ${save.kiwi ? 'RIGHT' : 'LEFT'} LOCK AS YOU SWING IN. SHUFFLE IF NEEDED.<br><br>
+        <span style="color:var(--lmagenta)">BACK IT IN</span> (${STORE_NAME} CAR PARK): DRIVE PAST THE STALL, STOP WHEN YOUR BACK BUMPER IS A CAR-LENGTH BEYOND IT,
+        THEN REVERSE ON FULL LOCK TOWARD IT AND STRAIGHTEN UP AS YOU GO IN. FINISH NOSE OUT, BETWEEN THE LINES, CLOSE TO THE BACK.
+        THE BACKUP CAMERA'S GUIDE LINES SHOW WHERE YOUR BACK CORNERS ARE GOING; THE SENSOR BEEPS FASTER AS THINGS GET CLOSE.<br><br>
         ${save.kiwi ? '<span class="good">NEW ZEALAND MODE IS ON: KEEP LEFT. THE CURB IS ON YOUR LEFT, SO EVERYTHING IS MIRRORED.</span><br><br>' : ''}
         <span style="color:var(--lmagenta)">HAZARDS</span> (CAREER, VALET SHIFT AND DAILY DARE MIX THESE IN):<br>
         ${Object.values(MODS).map((m) => `<span style="color:var(--white)">${m.name}</span>: ${m.desc.toUpperCase()}`).join('<br>')}
       </p>
       <div class="hint">ESC OR ENTER TO GO BACK</div>
     </div>`);
+}
+
+// Names the camera for a moment after it changes.
+let camToastEl = null;
+function camToast(name) {
+  if (camToastEl) camToastEl.remove();
+  const el = document.createElement('div');
+  el.className = 'pad-toast';
+  el.textContent = `CAMERA: ${name}`;
+  document.body.appendChild(el);
+  camToastEl = el;
+  setTimeout(() => { el.remove(); if (camToastEl === el) camToastEl = null; }, 1500);
 }
 
 function toastRumble() {
@@ -700,7 +725,7 @@ function startRun(cfg) {
     writeSave(save);
   }
   const tutorial = cfg.kind === 'tutorial';
-  const simMode = cfg.simMode || (cfg.kind === 'race' || cfg.kind === 'wreck' ? cfg.kind : 'test');
+  const simMode = cfg.simMode || (cfg.kind === 'race' || cfg.kind === 'wreck' || cfg.kind === 'lot' ? cfg.kind : 'test');
   const diff = tutorial ? DIFFICULTIES[0] : (DIFFICULTIES.find((d) => d.id === cfg.diff) || diffObj());
   const baseVehicle = veh(cfg.vehicle || save.vehicle);
   const vehicle = paintedSpec(baseVehicle);
@@ -714,8 +739,8 @@ function startRun(cfg) {
   }
   const world = new World(level, vehicle, opts);
   for (const s of world.playerSpots) {
-    const plan = planPark(world, s, vehicle);
-    s.par = plan ? plan.moves : 6;
+    const plan = s.kind === 'stall' ? planBackIn(world, s, vehicle) : planPark(world, s, vehicle);
+    s.par = plan ? plan.moves : s.kind === 'stall' ? 4 : 6;
   }
   game.run = {
     kind: cfg.kind, simMode, diff, mods: level.mods, vehicle: baseVehicle, lent: !!cfg.vehicle && cfg.vehicle !== save.vehicle,
@@ -732,6 +757,7 @@ function startRun(cfg) {
   game.wrongSideT = 0;
   game.wrongSideNag = 0;
   game.sheepNag = 0;
+  game.saidBackcam = false;
   game.result = null;
   game.autopilot = null;
   game.tutorial = tutorial ? new Tutorial($('tutor'), usingPad) : null;
@@ -761,6 +787,11 @@ function startRun(cfg) {
   const intro = $('hud-center').innerHTML !== '';
   const open = (text, secs) => { if (intro) game.sayAfter = [text, secs]; else say(text, secs); };
   game.sayAfter = null;
+  if (simMode === 'lot') {
+    if (level.mods.has('hidden')) open(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.lotHidden)}`, 5);
+    else if (level.mods.has('sticky')) open('<b>INSTRUCTOR:</b> The pedal is stuck. In a car park. Finish with the handbrake (SPACE) and pray.', 6);
+    else open(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.lotStart)} <span style="color:var(--dgray)">(C cycles to the backup camera.)</span>`, 6);
+  }
   if (simMode === 'test' && !tutorial && cfg.kind !== 'shift') {
     if (level.mods.has('hidden')) open(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.hidden)}`, 5);
     else if (level.mods.has('sticky')) open('<b>INSTRUCTOR:</b> The pedal is stuck. Brakes work. Finish with the handbrake (SPACE). Do not panic. Panic a little.', 6);
@@ -889,7 +920,11 @@ function updateHUD() {
   const kmh = Math.round(Math.abs(p.speed) * 3.6);
   run.topKmh = Math.max(run.topKmh, kmh);
   let bl = `<div class="gear ${p.gear === 'R' ? 'r' : ''}">${p.gear}</div><div><div>${kmh} KM/H</div>`;
-  if (p.lastEval && (p.lastEval.inSpot || p.lastEval.curbDist < 2.5) && run.simMode !== 'wreck') {
+  if (run.simMode === 'lot' && p.lastEval && (p.lastEval.inSpot || p.lastEval.backGap < p.spec.length + 1.5)) {
+    const e = p.lastEval;
+    const bk = e.backGap < 0 ? '<span class="bad">IN THE HEDGE</span>' : `<span class="${e.backGap < 0.5 ? 'good' : 'v'}">${e.backGap.toFixed(2)}M</span>`;
+    bl += `<div style="font-size:9px">BACK ${bk} &nbsp;ANGLE <span class="${e.angle < 3 ? 'good' : 'v'}">${e.angle.toFixed(0)}&deg;</span>${e.noseIn && e.angle < 30 ? ' <span class="bad">NOSE IN!</span>' : ''}</div>`;
+  } else if (p.lastEval && (p.lastEval.inSpot || p.lastEval.curbDist < 2.5) && run.simMode !== 'wreck') {
     const e = p.lastEval;
     const cd = e.curbDist < 0 ? '<span class="bad">ON CURB</span>' : `<span class="${e.curbDist < 0.35 ? 'good' : 'v'}">${e.curbDist.toFixed(2)}M</span>`;
     bl += `<div style="font-size:9px">CURB ${cd} &nbsp;ANGLE <span class="${e.angle < 3 ? 'good' : 'v'}">${e.angle.toFixed(0)}&deg;</span></div>`;
@@ -898,8 +933,8 @@ function updateHUD() {
   bl += '</div>';
   $('hud-bl').innerHTML = bl;
   $('hud-br').innerHTML = usingPad
-    ? `RT / R-STICK GAS &bull; LT BRAKE<br>L-STICK STEER &bull; RB HANDBRAKE<br>X CAMERA &bull; Y HORN<br>BACK RESTART &bull; START PAUSE${run.kind === 'test' ? '<br>LB INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>LB NITRO &bull; A CASH OUT' : ''}`
-    : `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${run.kind === 'test' ? '<br>I INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>SHIFT NITRO &bull; ENTER CASH OUT' : ''}`;
+    ? `RT / R-STICK GAS &bull; LT BRAKE<br>L-STICK STEER &bull; RB HANDBRAKE<br>X CAMERA &bull; Y HORN<br>BACK RESTART &bull; START PAUSE${run.kind === 'test' || run.kind === 'lot' ? '<br>LB INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>LB NITRO &bull; A CASH OUT' : ''}`
+    : `WASD DRIVE &bull; SPACE BRAKE<br>C CAMERA &bull; H HORN<br>R RESTART &bull; ESC PAUSE${run.kind === 'test' || run.kind === 'lot' ? '<br>I INSTRUCTOR DEMO' : ''}${run.simMode === 'wreck' ? '<br>SHIFT NITRO &bull; ENTER CASH OUT' : ''}`;
 
   const park = $('hud-park');
   if (p.parkTimer > 0 && !p.parked) {
@@ -911,7 +946,8 @@ function updateHUD() {
 function handleEvents(events) {
   const w = game.world;
   const run = game.run;
-  const test = run.simMode === 'test' && run.kind !== 'tutorial' && run.kind !== 'shift';
+  const test = (run.simMode === 'test' || run.simMode === 'lot') && run.kind !== 'tutorial' && run.kind !== 'shift';
+  const inLot = run.simMode === 'lot';
   // Rumble only for things the player feels (and only when on a controller).
   const buzz = (strong, weak, ms) => { if (usingPad) rumble(strong, weak, ms); };
   const hitBuzz = (impact) => buzz(0.15 + impact * 0.09, 0.25 + impact * 0.06, 80 + Math.min(300, impact * 40));
@@ -925,7 +961,7 @@ function handleEvents(events) {
       if (e.car.isPlayer || (e.otherCar && e.otherCar.isPlayer)) hitBuzz(e.impact);
       if (e.car.isPlayer || e.impact > 1) audio.crash(e.impact);
       if (e.car.isPlayer && e.otherCar && e.otherCar.isTraffic) audio.honk();
-      if (e.car.isPlayer && test && e.impact > 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('ding'))}`);
+      if (e.car.isPlayer && test && e.impact > 0.4 && !(e.other && e.other.kind === 'cart')) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('ding'))}`);
     } else if (e.type === 'break') {
       audio.crash(3);
       if (e.by && e.by.isPlayer) hitBuzz(Math.max(2, e.impact || 0));
@@ -938,7 +974,7 @@ function handleEvents(events) {
     else if (e.type === 'curb' && e.car.isPlayer) {
       audio.curb();
       buzz(0.35, 0.1, 90);
-      if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(lines('curb'))}`);
+      if (test) say(`<b>INSTRUCTOR:</b> ${pickLine(inLot ? INSTRUCTOR.lotCurb : lines('curb'))}`);
     } else if (e.type === 'parked') {
       audio.jingle(e.car.isPlayer);
       if (e.car.isPlayer) { game.slow = Math.max(game.slow, 1.1); buzz(0, 0.5, 120); }
@@ -955,6 +991,12 @@ function handleEvents(events) {
     } else if (e.type === 'creep') {
       audio.tone(900, 0.08, 'square', 0.04); audio.tone(900, 0.08, 'square', 0.04, 0.4);
       if (test && w.shrunk < 0.4) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.creep)}`, 3);
+    } else if (e.type === 'backout') {
+      audio.tone(1000, 0.1, 'square', 0.05); audio.tone(1000, 0.1, 'square', 0.05, 0.35); audio.tone(1000, 0.1, 'square', 0.05, 0.7);
+      if (test && Math.random() < 0.7) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.backout)}`, 3);
+    } else if (e.type === 'cart') {
+      audio.tone(1400 + Math.random() * 400, 0.06, 'triangle', 0.08); audio.noiseBurst(0.12, 0.15, 3000, 2);
+      if (e.car.isPlayer && test && Math.random() < 0.6) say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.cart)}`, 3);
     } else if (e.type === 'combo') {
       audio.tone(600 + e.combo * 60, 0.08, 'square', 0.07); audio.tone(900 + e.combo * 60, 0.12, 'square', 0.07, 0.08);
     } else if (e.type === 'land' && e.car.isPlayer) {
@@ -973,7 +1015,7 @@ function handleEvents(events) {
     say(`<b>WRECK-REATION:</b> ${pickLine(['Cars go wheels-down. Generally.', 'That is not how cars go.', 'Your car is now a turtle. Game over, turtle.'])}`, 4);
     finishWreck(false, true);
   }
-  if (run.simMode === 'test' && run.kind !== 'tutorial' && w.player.parked) finishTest();
+  if ((run.simMode === 'test' || run.simMode === 'lot') && run.kind !== 'tutorial' && w.player.parked) finishTest();
   if (run.simMode === 'race') {
     if (w.player.parked) finishRace(true);
     else if (w.ai.car.parked) finishRace(false);
@@ -988,7 +1030,8 @@ function runResult(extra) {
   return {
     kind: run.kind, simMode: run.simMode, car: p, world: w, mods: run.mods, diff: run.diff.id, time: game.playTime,
     vehicleId: run.vehicle.id, careerId: run.career ? run.career.level.id : null, hidden: run.mods.has('hidden'),
-    spotSpare: spot ? spot.length - p.spec.length - (p.spec.extraRoom || 0) : 99,
+    spotSpare: spot ? (spot.spare ?? spot.length - p.spec.length) - (p.spec.extraRoom || 0) : 99,
+    noseIn: !!(p.finalEval && p.finalEval.noseIn),
     parked: p.parked, won: false, score: 0, letter: '', ...extra,
   };
 }
@@ -998,15 +1041,16 @@ function finishTest() {
   if (run.kind === 'shift') return finishShiftRound();
   const spot = p.parkedSpot;
   const par = spot && spot.par != null ? spot.par : run.par;
-  const r = gradePark({ car: p, evalResult: p.finalEval, time: game.playTime, par, difficulty: run.diff, spot, mods: run.mods, hidden: run.mods.has('hidden') });
+  const grade = run.simMode === 'lot' ? gradeStall : gradePark;
+  const r = grade({ car: p, evalResult: p.finalEval, time: game.playTime, par, difficulty: run.diff, spot, mods: run.mods, hidden: run.mods.has('hidden') });
   if (save.kiwi && Math.random() < 0.6) r.quip = pickLine(r.score >= 700 ? KIWI.good : KIWI.bad);
   if (game.autopilot) {
     r.points = 0;
     r.quip = 'The instructor parked it. You get nothing. Good day, sir.';
   }
   save.parks++;
-  const key = `${run.vehicle.id}:${run.diff.id}`;
-  const isBest = !game.autopilot && run.kind === 'test' && (!save.best[key] || r.score > save.best[key]);
+  const key = `${run.simMode === 'lot' ? 'lot:' : ''}${run.vehicle.id}:${run.diff.id}`;
+  const isBest = !game.autopilot && (run.kind === 'test' || run.kind === 'lot') && (!save.best[key] || r.score > save.best[key]);
   if (isBest) save.best[key] = r.score;
   const extras = [];
   let total = `SCORE ${r.score}${isBest ? ' (NEW BEST!)' : ''}`;
@@ -1034,7 +1078,7 @@ function finishTest() {
   const res = runResult({ parked: true, score: r.score, letter: r.letter });
   endWith(() => {
     renderResults({
-      title: run.career ? run.career.level.name : run.dailyKey ? 'DAILY DARE' : 'TEST COMPLETE',
+      title: run.career ? run.career.level.name : run.dailyKey ? 'DAILY DARE' : run.simMode === 'lot' ? 'BACKED IN' : 'TEST COMPLETE',
       grade: r.letter, gradeTitle: r.title, quip: r.quip, items: [...r.items, ...extras], stars: starsHtml,
       total, points: r.points, next, back, retry: () => startRun(sameRunConfig()),
       nextLabel: run.career ? 'NEXT LEVEL' : 'GO AGAIN', backLabel: run.career ? 'CAREER' : 'MENU',
@@ -1361,15 +1405,19 @@ function handleKeys() {
       if (hit('Escape')) { audio.nitro(false); renderPause(); break; }
       if (hit('KeyR') && run.kind !== 'shift') { audio.nitro(false); startRun(sameRunConfig()); break; }
       if (hit('KeyC')) {
-        if (view.cycleCamera()) { if (game.tutorial) game.tutorial.camPresses++; } else say('<b>NO MIRRORS:</b> chase camera only on this one.', 2);
+        if (view.cycleCamera()) {
+          if (game.tutorial) game.tutorial.camPresses++;
+          camToast(view.camName);
+          if (view.camMode === 3 && !game.saidBackcam && run.kind !== 'tutorial' && Math.random() < 0.5) { game.saidBackcam = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.backcam)}`, 3); }
+        } else say('<b>NO MIRRORS:</b> chase camera only on this one.', 2);
       }
       if (hit('Space') && game.tutorial) game.tutorial.handbrake = true;
       if (run.kind === 'tutorial' && hit('Enter')) { finishTutorial(true); break; }
       if (hit('KeyH')) { audio.horn(game.world.player.spec.look ? 'food' : game.world.player.spec.style); game.world.honk(); if (usingPad) rumble(0, 0.3, 150); }
       if (game.state === 'play' && run.simMode === 'wreck' && hit('Enter')) { audio.nitro(false); finishWreck(false); }
-      if (game.state === 'play' && (run.kind === 'test' || run.kind === 'tutorial') && hit('KeyI') && !game.autopilot) {
+      if (game.state === 'play' && (run.kind === 'test' || run.kind === 'lot' || run.kind === 'tutorial') && hit('KeyI') && !game.autopilot) {
         const w = game.world;
-        game.autopilot = new AIDriver(w, w.player, w.playerSpot, AI_PROFILES.normal);
+        game.autopilot = makeDriver(w, w.player, w.nearestSpot(w.player) || w.playerSpot, AI_PROFILES.normal);
         say('<b>INSTRUCTOR:</b> Oh, for heaven\'s sake. Move over. Watch and learn.', 5);
       }
       break;
@@ -1454,18 +1502,18 @@ function step(now) {
       const left = run.timeLimit - game.playTime;
       const sec = Math.ceil(left);
       if (left <= 10 && sec !== run.tickedAt && sec > 0) { run.tickedAt = sec; audio.tick(left <= 5); }
-      if (left <= 10 && !run.saidTimeLow && run.simMode === 'test' && run.kind !== 'shift') { run.saidTimeLow = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.timeLow)}`, 3); }
+      if (left <= 10 && !run.saidTimeLow && (run.simMode === 'test' || run.simMode === 'lot') && run.kind !== 'shift') { run.saidTimeLow = true; say(`<b>INSTRUCTOR:</b> ${pickLine(INSTRUCTOR.timeLow)}`, 3); }
       if (left <= 0) timeUp();
     }
 
     // instructor nags
-    if (run.kind === 'test' && game.state === 'play') {
+    if ((run.kind === 'test' || run.kind === 'lot') && game.state === 'play') {
       if (Math.abs(w.player.speed) < 0.05) game.idleT += dt; else game.idleT = 0;
       if (game.idleT > 12) { say(`<b>INSTRUCTOR:</b> ${pickLine(lines('slow'))}`); game.idleT = 0; }
       if (!game.saidReverse && w.player.gear === 'R' && w.player.speed < -0.5) { game.saidReverse = true; say(`<b>INSTRUCTOR:</b> ${pickLine(lines('reverse'))}`, 2); }
     }
     // New Zealand mode: shout if the player drifts over to the right-hand side.
-    if (w.level.leftHand && game.state === 'play' && run.simMode !== 'wreck' && !game.autopilot) {
+    if (w.level.leftHand && game.state === 'play' && run.simMode !== 'wreck' && !w.level.lot && !game.autopilot) {
       const b = w.player.body;
       const wrong = b.z > 0.7 && Math.abs(b.z) < CURB && Math.abs(w.player.speed) > 1;
       game.wrongSideT = wrong ? game.wrongSideT + dt : 0;
@@ -1477,7 +1525,7 @@ function step(now) {
       }
     }
     game.sheepNag -= dt;
-    audio.reverseBeep(dt, w.player.gear === 'R' && w.player.speed < -0.2);
+    audio.reverseBeep(dt, w.player.gear === 'R' && w.player.speed < -0.2, view.rearDist);
     audio.nitro(w.player.nitroOn && game.state === 'play');
     if (game.sirenT > 0) {
       game.sirenT -= rawDt;

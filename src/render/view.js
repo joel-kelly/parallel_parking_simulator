@@ -6,12 +6,19 @@ import { Debris, Particles, Popups, Skids } from './effects.js';
 import { CURB, SIDEWALK, SIDEWALK_H, BUILDING_DEPTH } from '../sim/level.js';
 import { spotBounds } from '../sim/spot.js';
 import { centreAhead } from '../sim/vehicles.js';
+import { buildLotScene, buildCart, buildStallMarker } from './lot.js';
+import { buildInterior, animateInterior, drawScreen } from './interior.js';
+import { curbAt } from '../sim/air.js';
 
 const BUILDING_FACE = CURB + SIDEWALK;
 const PIXEL_HEIGHT = 300; // vertical resolution of the chunky render
 
 const SCARE_WORDS = ['HEY!', 'WATCH IT!', 'MY LATTE!', 'I HAVE A LAWYER!', 'NOT TODAY!', 'MY HIP!', 'RUDE!'];
 const HONK_WORDS = ['HONK!', 'MOVE IT!', 'HOOOONK', 'BEEEEP', 'COME ON!'];
+const BACKOUT_WORDS = ['BEEP BEEP BEEP', 'REVERSING!', 'NOT LOOKING!', 'LEAVING! (SLOWLY)'];
+const CART_WORDS = ['CLANG!', 'RATTLE!', 'CART!', 'WHEEE!'];
+export const CAM_NAMES = ['CHASE', 'HIGH CHASE', 'TOP-DOWN', 'DRIVER + BACKUP CAM'];
+export const CAM_INTERIOR = 3;
 
 export class View {
   constructor(canvas, popupLayer) {
@@ -105,9 +112,11 @@ export class View {
     sc.left = -40; sc.right = 40; sc.top = 40; sc.bottom = -40; sc.near = 1; sc.far = 160;
     scene.add(sun, sun.target);
 
-    const street = buildStreet(world.level, this.ice ? 'ice' : this.rain ? 'wet' : 'dry');
+    const surface = this.ice ? 'ice' : this.rain ? 'wet' : 'dry';
+    const street = world.level.lot ? buildLotScene(world.level, surface) : buildStreet(world.level, surface);
     scene.add(street.group);
     this.buildingViews = street.buildings;
+    this.gorilla = street.gorilla || null;
     if (!this.night && !this.foggy) addClouds(scene, world.level, this.rain ? EGA.dgray : EGA.white);
 
     if (world.level.ramp) scene.add(buildRamp(world.level.ramp));
@@ -126,8 +135,28 @@ export class View {
       v.dist = 0;
       v.skidDist = 0;
       if (this.night) addHeadlights(v, c.spec, c.isPlayer ? 1 : 0.5);
+      addReverseLights(v, c.spec);
       return v;
     });
+    // The player's cabin, for the driver's-seat camera. It replaces the
+    // outside of the car while you're sat in it.
+    const pv = this.carViews.find((v) => v.car.isPlayer);
+    this.insideNow = undefined;
+    pv.exterior = [...pv.body.children];
+    this.interior = buildInterior(pv.car.spec, pv.car.spec.color, pv.car.spec.accent, world.level.leftHand);
+    this.interior.group.visible = false;
+    pv.body.add(this.interior.group);
+    if (this.night) {
+      const glow = new THREE.PointLight(0x5555ff, 2.5, 3, 1.5);
+      glow.position.copy(this.interior.screenPos).add(new THREE.Vector3(-0.3, 0, 0));
+      this.interior.group.add(glow);
+    }
+    this.playerView = pv;
+    this.prevSpeed = 0;
+    this.prevYaw = 0;
+    this.prevVy = 0;
+    this.sensor = { left: 9, mid: 9, right: 9 };
+    this.rearDist = 9;
     if (world.ai) {
       // tint the AI a colour the player isn't wearing
       const v = this.carViews.find((cv) => cv.car.isAI);
@@ -149,7 +178,7 @@ export class View {
 
     this.propViews = world.props.map((p) => {
       const g = buildProp(p.type);
-      const y = Math.abs(p.body.z) > CURB ? SIDEWALK_H : 0;
+      const y = world.level.lot ? curbAt(world.level, p.body.x, p.body.z) : Math.abs(p.body.z) > CURB ? SIDEWALK_H : 0;
       g.position.set(p.body.x, y, p.body.z);
       g.rotation.y = -p.body.a;
       scene.add(g);
@@ -157,10 +186,18 @@ export class View {
     });
     this.propByBody = new Map(this.propViews.map((v) => [v.prop, v]));
 
+    this.cartViews = world.carts.map((c) => {
+      const g = buildCart();
+      scene.add(g);
+      return { group: g, cart: c };
+    });
+
     // At night the lamp posts nearest the action actually light things up.
     if (this.night) {
-      const focus = world.playerSpot ? world.playerSpot.cx : world.level.playerStart.x;
-      const lamps = world.props.filter((p) => p.type === 'lamp').sort((a, b) => Math.abs(a.body.x - focus) - Math.abs(b.body.x - focus)).slice(0, 4);
+      const fx = world.playerSpot ? world.playerSpot.cx : world.level.playerStart.x;
+      const fz = world.playerSpot && world.playerSpot.kind === 'stall' ? world.playerSpot.cz : 0;
+      const far = (p) => Math.hypot(p.body.x - fx, (p.body.z - fz) * (world.level.lot ? 1 : 0));
+      const lamps = world.props.filter((p) => p.type === 'lamp').sort((a, b) => far(a) - far(b)).slice(0, world.level.lot ? 5 : 4);
       for (const l of lamps) {
         const pt = new THREE.PointLight(0xffff55, 120, 16, 1.6);
         pt.position.set(l.body.x, 4.0, l.body.z);
@@ -170,13 +207,14 @@ export class View {
 
     this.pedViews = world.peds.list.map((p) => {
       const v = buildPed(p);
+      if (p.cart) { const ct = buildCart(); ct.position.set(1.0, 0, 0); v.root.add(ct); }
       scene.add(v.root);
       v.ped = p;
       return v;
     });
 
     this.markers = mods.has('hidden') ? [] : world.level.spots.map((s) => {
-      const m = buildSpotMarker(s, s.owner === 'ai' ? EGA.lred : EGA.yellow);
+      const m = s.kind === 'stall' ? buildStallMarker(s) : buildSpotMarker(s, s.owner === 'ai' ? EGA.lred : EGA.yellow);
       scene.add(m);
       m.userData.spot = s;
       return m;
@@ -202,9 +240,11 @@ export class View {
   // Returns false when the camera is locked by a modifier.
   cycleCamera() {
     if (this.camLocked) return false;
-    this.camMode = (this.camMode + 1) % 3;
+    this.camMode = (this.camMode + 1) % CAM_NAMES.length;
     return true;
   }
+
+  get camName() { return CAM_NAMES[this.camMode]; }
 
   // Converts sim events into effects. Audio is handled elsewhere.
   handle(e) {
@@ -309,6 +349,10 @@ export class View {
     } else if (e.type === 'combo') {
       const colour = e.mult >= 6 ? '#ff55ff' : e.mult >= 3 ? '#ff5555' : '#ffff55';
       this.popups.add(`x${e.mult} COMBO!`, e.x, 3, e.z, colour, 1.3 + Math.min(1.5, e.combo * 0.08));
+    } else if (e.type === 'backout') {
+      this.popups.add(BACKOUT_WORDS[Math.floor(Math.random() * BACKOUT_WORDS.length)], e.x, 2.4, e.z, '#ffffff', 1.2);
+    } else if (e.type === 'cart') {
+      if (e.impact > 0.8) this.popups.add(CART_WORDS[Math.floor(Math.random() * CART_WORDS.length)], e.x, 1.6, e.z, '#aaaaaa', 1);
     } else if (e.type === 'creep') {
       this.popups.add('beep... beep...', e.x, 2, e.z, '#aaaaaa', 0.8);
     }
@@ -325,6 +369,12 @@ export class View {
       if (v.parked.damage > 60 && !v.parked.wrecked && Math.random() < dt * 4) this.particles.smoke(b.x, 1.2, b.z);
     }
     for (const v of this.pedViews) this.syncPed(v, dt);
+    for (const v of this.cartViews) {
+      const b = v.cart.body;
+      v.group.position.set(b.x, 0, b.z);
+      v.group.rotation.y = -b.a;
+    }
+    if (this.gorilla) this.gorilla.rotation.z = Math.sin(this.time * 1.3) * 0.08; // it's inflatable
     for (const g of this.geysers) {
       g.t -= dt;
       for (let i = 0; i < 4; i++) this.particles.water(g.x, 0.5, g.z);
@@ -371,6 +421,8 @@ export class View {
     this.debris.kick(w.cars);
     this.debris.update(dt);
     this.particles.update(dt);
+    this.sensor = rearSensor(w, p);
+    this.rearDist = Math.min(this.sensor.left, this.sensor.mid, this.sensor.right);
     this.updateCamera(dt, false);
     this.popups.update(dt);
 
@@ -383,7 +435,31 @@ export class View {
     u.look.value = getLook() === 'classic' ? 0 : 1;
     u.flash.value = this.flash;
     u.tint.value.copy(this.tint);
+    if (this.camMode === CAM_INTERIOR) this.renderBackupCam(dt);
     this.post.render(this.scene, this.camera);
+  }
+
+  // The backup camera's picture, rendered into the dash screen's texture.
+  renderBackupCam(dt) {
+    const it = this.interior, pv = this.playerView, car = pv.car;
+    pv.holder.updateMatrixWorld(true);
+    it.rearCam.position.copy(pv.body.localToWorld(it.camLocal.clone()));
+    it.rearCam.up.set(0, 1, 0).applyQuaternion(pv.holder.quaternion);
+    it.rearCam.lookAt(pv.body.localToWorld(it.camAim.clone()));
+    it.rearCam.updateMatrixWorld();
+    it.tick += dt;
+    drawScreen(it, car, this.sensor, this.time);
+    // show the outside of the car (the bumper peeks into the picture), hide the cabin
+    for (const o of pv.exterior) o.visible = true;
+    it.group.visible = false;
+    const r = this.renderer;
+    r.shadowMap.autoUpdate = false;
+    r.setRenderTarget(it.feedRT);
+    r.render(this.scene, it.rearCam);
+    r.setRenderTarget(null);
+    r.shadowMap.autoUpdate = true;
+    for (const o of pv.exterior) o.visible = false;
+    it.group.visible = true;
   }
 
   weather(dt) {
@@ -414,6 +490,7 @@ export class View {
     v.roll += (targetRoll - v.roll) * Math.min(1, dt * 6);
     v.body.rotation.set(v.roll, 0, 0);
     v.dist += c.speed * dt;
+    if (v.reverse) v.reverse.visible = c.gear === 'R' && c.speed < -0.05;
     for (const w of v.wheels) {
       if (w.front) w.pivot.rotation.y = -c.steer;
       w.wheel.rotation.z = -v.dist / v.radius;
@@ -436,13 +513,14 @@ export class View {
 
   syncPed(v, dt) {
     const p = v.ped;
-    v.root.position.set(p.x, p.y + (Math.abs(p.z) > CURB ? SIDEWALK_H : 0), p.z);
+    const lv = this.world.level;
+    v.root.position.set(p.x, p.y + (lv.lot ? curbAt(lv, p.x, p.z) : Math.abs(p.z) > CURB ? SIDEWALK_H : 0), p.z);
     if (p.state === 'dive') {
       v.root.rotation.set(0, -p.diveA, 0);
       v.body.rotation.set(0, 0, -1.3);
       v.hips[0].rotation.z = v.hips[1].rotation.z = 0.6;
     } else {
-      const facing = p.state === 'walk' ? (p.facing > 0 ? 0 : Math.PI) : (p.side > 0 ? Math.PI / 2 : -Math.PI / 2) * (p.state === 'wait' ? 0.3 : 1);
+      const facing = p.state === 'walk' ? (p.facing > 0 ? 0 : Math.PI) : (p.side > 0 ? Math.PI / 2 : -Math.PI / 2) * (p.state === 'wait' && !p.cart ? 0.3 : 1);
       v.root.rotation.set(0, -facing, 0);
       v.body.rotation.set(0, 0, p.state === 'wait' ? 0.25 : 0); // hunched over the phone
       const swing = p.state === 'wait' ? 0 : Math.sin(p.phase) * (p.speed > 2 ? 0.9 : 0.5);
@@ -458,6 +536,9 @@ export class View {
     const L = p.spec.length;
     const lift = Math.max(0, p.y - p.hcm); // follow the car up into the air
     let pos, look;
+    const inside = this.camMode === CAM_INTERIOR;
+    this.setInterior(inside);
+    if (inside) { this.cabinCamera(dt); return; }
     if (this.camMode === 0) { // chase
       const back = 6 + L * 0.9;
       pos = new THREE.Vector3(b.x - fx * back, 4.2 + L * 0.35 + lift, b.z - fz * back);
@@ -486,6 +567,52 @@ export class View {
     this.camera.lookAt(this.camLook);
   }
 
+  // Sitting in the driver's seat: the outside of the car disappears, the cabin appears.
+  setInterior(on) {
+    const pv = this.playerView;
+    if (!pv || this.insideNow === on) return;
+    this.insideNow = on;
+    for (const o of pv.exterior) o.visible = !on;
+    this.interior.group.visible = on;
+    this.camera.near = on ? 0.05 : 0.3;
+    this.camera.fov = on ? 64 : 60;
+    this.camera.updateProjectionMatrix();
+    this.pxScale = this.renderer.getSize(new THREE.Vector2()).y / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)));
+    if (this.particles) this.particles.material.uniforms.scale.value = this.pxScale;
+  }
+
+  cabinCamera(dt) {
+    const it = this.interior, pv = this.playerView, c = pv.car, b = c.body;
+    // what the knick-knacks feel: forward, sideways and vertical acceleration
+    const fwd = dt > 0 ? (c.speed - this.prevSpeed) / dt : 0;
+    const side = c.speed * (dt > 0 ? (b.a - this.prevYaw) / dt : 0);
+    const up = dt > 0 ? (c.vy - this.prevVy) / dt : 0;
+    this.prevSpeed = c.speed; this.prevYaw = b.a; this.prevVy = c.vy;
+    animateInterior(it, c, Math.min(dt, 0.05), { fwd: THREE.MathUtils.clamp(fwd, -12, 12), side: THREE.MathUtils.clamp(side, -12, 12), up: THREE.MathUtils.clamp(up, -30, 30) });
+    pv.holder.updateMatrixWorld(true);
+    // On narrow screens, turn toward the dash screen so it stays in view.
+    const aspect = this.camera.aspect;
+    const yaw = aspect < 1.1 ? 0.9 : aspect < 1.5 ? 0.6 : 0.35;
+    const lk = it.look.clone();
+    const dx = it.screenPos.x - it.eye.x;
+    lk.z = it.eye.z + (it.screenPos.z - it.eye.z) / dx * (lk.x - it.eye.x) * yaw;
+    if (aspect < 1.1) lk.y -= 0.8; // and down a bit, to fit the screen in under the windscreen
+    const eye = pv.body.localToWorld(it.eye.clone());
+    const target = pv.body.localToWorld(lk);
+    this.camera.up.set(0, 1, 0).applyQuaternion(pv.holder.quaternion);
+    this.camera.position.copy(eye);
+    if (this.quakeT > 0) { this.quakeT -= dt; this.shake = Math.max(this.shake, 0.7); }
+    if (this.shake > 0) {
+      const k = 0.08; // it's a lot less dramatic from inside
+      this.camera.position.x += (Math.random() - 0.5) * this.shake * k;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake * k;
+      this.shake = Math.max(0, this.shake - dt * 2);
+    }
+    this.camera.lookAt(target);
+    this.camPos.copy(this.camera.position);
+    this.camLook.copy(target);
+  }
+
   // If a standing building sits between the car and the camera, pull the
   // camera in (and up) so it never ends up inside a wall.
   avoidBuildings(look, cam) {
@@ -506,6 +633,7 @@ export class View {
   }
 
   insideBuilding(x, y, z) {
+    if (this.world.level.lot) return z > this.world.level.lot.storeFace - 0.4 && y < 12;
     const az = Math.abs(z), m = 0.4;
     if (az < BUILDING_FACE - m || az > BUILDING_FACE + BUILDING_DEPTH + m) return false;
     const dir = z > 0 ? 1 : -1;
@@ -583,6 +711,7 @@ export class View {
     this.time += dt;
     // slow cinematic pan down the middle of the street
     const lv = this.world.level;
+    this.setInterior(false);
     const span = lv.xMax - lv.xMin - 30;
     const x = lv.xMin + 15 + ((this.time * 2.5) % span);
     this.camera.up.set(0, 1, 0);
@@ -607,6 +736,63 @@ function addHeadlights(v, spec, strength) {
     // a glowing lamp, so the lights read even when they're not lighting anything
     v.body.add(box(0.1, 0.22, 0.36, EGA.white, L / 2 + 0.05, 0.7, side * W * 0.32, { basic: true }));
   }
+}
+
+// White reversing lamps, lit while the car is going backward.
+function addReverseLights(v, spec) {
+  const g = new THREE.Group();
+  const r = spec.wheelRadius || 0.32;
+  const ride = spec.style === 'monster' ? r * 1.2 : r + 0.05;
+  const y = ride + (spec.look ? 0.02 : spec.style === 'monster' ? 0.55 : spec.style === 'bus' ? 0.9 : 0.35);
+  for (const s of [1, -1]) g.add(box(0.06, 0.12, 0.14, EGA.white, -spec.length / 2 - 0.03, y + 0.02, s * spec.width * 0.15, { basic: true }));
+  g.visible = false;
+  v.body.add(g);
+  v.reverse = g;
+}
+
+// The parking sensor: how far behind the back bumper the nearest thing is,
+// for the left, middle and right of the bumper. (Rays against boxes.)
+function rearSensor(world, car) {
+  const b = car.body;
+  const ca = Math.cos(b.a), sa = Math.sin(b.a);
+  const out = { left: 9, mid: 9, right: 9 };
+  if (car.off) return out;
+  const MAX = 4;
+  const bodies = [];
+  const consider = (o) => { if (Math.hypot(o.x - b.x, o.z - b.z) < MAX + b.hl + Math.hypot(o.hl, o.hw)) bodies.push(o); };
+  for (const p of world.parked) consider(p.body);
+  for (const c of world.cars) if (c !== car && !c.off) consider(c.body);
+  for (const c of world.carts) consider(c.body);
+  for (const p of world.props) if (!p.broken) consider(p.body);
+  for (const w of world.walls) consider(w);
+  for (const q of world.level.raised || []) consider({ x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2, a: 0, hl: (q.x1 - q.x0) / 2, hw: (q.z1 - q.z0) / 2 });
+  const rays = [['left', -0.8], ['left', -0.45], ['mid', -0.15], ['mid', 0.15], ['right', 0.45], ['right', 0.8]];
+  for (const [zone, f] of rays) {
+    const side = f * b.hw;
+    const ox = b.x - ca * b.hl - sa * side, oz = b.z - sa * b.hl + ca * side;
+    for (const o of bodies) {
+      const t = rayBox(ox, oz, -ca, -sa, o, MAX);
+      if (t < out[zone]) out[zone] = t;
+    }
+  }
+  return out;
+}
+
+// Distance along a ray to an oriented box (slab test in the box's frame), or Infinity.
+function rayBox(ox, oz, dx, dz, o, max) {
+  const c = Math.cos(o.a), s = Math.sin(o.a);
+  const rx = ox - o.x, rz = oz - o.z;
+  const lx = rx * c + rz * s, lz = -rx * s + rz * c;
+  const ldx = dx * c + dz * s, ldz = -dx * s + dz * c;
+  let t0 = 0, t1 = max;
+  for (const [p, d, h] of [[lx, ldx, o.hl], [lz, ldz, o.hw]]) {
+    if (Math.abs(d) < 1e-9) { if (Math.abs(p) > h) return Infinity; continue; }
+    let a = (-h - p) / d, bb = (h - p) / d;
+    if (a > bb) [a, bb] = [bb, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, bb);
+    if (t0 > t1) return Infinity;
+  }
+  return t0;
 }
 
 function pickFlipWord() {

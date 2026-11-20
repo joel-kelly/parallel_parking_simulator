@@ -20,6 +20,12 @@ export const CAREER = [
   { id: 'c17', name: 'RUSH HOUR II', blurb: 'Hard spot, rain, traffic, and a clock. Welcome to the city.', diff: 'hard', mods: ['traffic', 'rain'], time: 75 },
   { id: 'c18', name: 'THE PARKINATOR', blurb: 'Race the machine. At night. It does not blink. It has no eyes.', mode: 'race', diff: 'insane', mods: ['night'] },
   { id: 'c19', name: 'GRADUATION', blurb: 'Everything, all at once, in an insane spot. Make us proud.', diff: 'insane', mods: ['traffic', 'peds', 'night', 'quake'] },
+  // Post-grad: the big-box store car park. Back it in.
+  { id: 'c20', name: 'SATURDAY AT BULKZILLA', blurb: 'The car park is full, the carts are feral, and you must BACK IN. Nose out, like a getaway driver.', mode: 'lot', diff: 'normal', mods: [] },
+  { id: 'c21', name: 'FREE SAMPLE FRENZY', blurb: 'Someone is giving away tiny sausages. Everyone is here. Everyone is walking in the road.', mode: 'lot', diff: 'normal', mods: ['peds', 'traffic'] },
+  { id: 'c22', name: 'MIDNIGHT MADNESS SALE', blurb: 'Doors open at midnight. It is raining. The spot is tight. The deals are not that good.', mode: 'lot', diff: 'hard', mods: ['night', 'rain'] },
+  { id: 'c23', name: 'FIELD TRIP', blurb: 'Forty kids. One hot dog stand. Back the bus in, and nobody touch anything.', mode: 'lot', diff: 'normal', mods: ['peds'], vehicle: 'bus' },
+  { id: 'c24', name: 'BLACK FRIDAY', blurb: 'Insane stall, spot hunters, shoppers, ice, and the clock. Retail is war.', mode: 'lot', diff: 'insane', mods: ['traffic', 'peds', 'ice'], time: 90 },
 ];
 
 export const FIRST_CLEAR_BONUS = 150;

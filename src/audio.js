@@ -29,12 +29,19 @@ export class Audio {
     if (this.master) this.master.gain.value = m ? 0 : 0.5;
   }
 
-  // Reverse beeper while backing up. Cheeky but accurate.
-  reverseBeep(dt, reversing) {
+  // Reverse beeper while backing up. Cheeky but accurate. With something
+  // close behind (near, in metres) it turns into a parking sensor: faster
+  // and higher the closer it gets, then one long panicked tone.
+  reverseBeep(dt, reversing, near = 9) {
     if (!this.ctx) return;
     if (!reversing) { this.beepT = 0; return; }
     this.beepT -= dt;
-    if (this.beepT <= 0) { this.tone(1200, 0.12, 'square', 0.06); this.beepT = 0.6; }
+    if (this.beepT <= 0) {
+      if (near < 0.3) { this.tone(1800, 0.16, 'square', 0.05); this.beepT = 0.15; return; }
+      const close = near < 1.8;
+      this.tone(close ? 1500 + (1.8 - near) * 200 : 1200, close ? 0.07 : 0.12, 'square', 0.06);
+      this.beepT = close ? 0.1 + near * 0.22 : 0.6;
+    }
   }
 
   tone(freq, dur, type = 'square', vol = 0.1, when = 0, slide = 0) {

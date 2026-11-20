@@ -30,7 +30,7 @@ Settings → Pages → Build and deployment → Source.
 | A D / Left Right | Steer |
 | Space | Handbrake |
 | Shift | Nitro (Wreck-reation only) |
-| C | Cycle camera: chase, high chase, top-down |
+| C | Cycle camera: chase, high chase, top-down, driver's seat + backup cam |
 | H | Horn (each vehicle has its own; hurries jaywalkers along) |
 | R | Restart |
 | Esc | Pause |
@@ -70,19 +70,29 @@ turn it off or on.
 
 ## Modes
 
-- **Career**: 19 hand-made levels, each with its own gimmick, unlocked one after
-  another. Earn up to three stars per level (park / score 650 / score 850, or for
+- **Career**: 24 hand-made levels, each with its own gimmick, unlocked one after
+  another. The last five are in the Bulkzilla car park (see Back It In). Earn up to three stars per level (park / score 650 / score 850, or for
   races: win / clean win / clean win under 45s). Some levels lend you a company car.
 - **Valet Shift**: endless arcade mode. Every customer hands you a random car (even
   ones you don't own), the spot gets tighter, the clock gets shorter, and hazards
   pile on from customer 3. Clean parks build a streak multiplier. Three strikes
   (a timeout, or three dings in one park) and the shift is over.
 - **Daily Dare**: one fixed challenge per day, the same for everyone: a car, a
-  spot size and a couple of hazards picked from the date. Your best is saved per day.
+  spot size and a couple of hazards picked from the date (and, about one day in
+  four, the car park instead of the street). Your best is saved per day.
 - **Free Play**
   - **Driving Test**: park between two cars and get graded (S to F) on moves vs. par,
     dings, distance from the curb, angle, centering, time, vandalism and terrorised
     pedestrians. Par comes from the AI planner's own best solution for that spot.
+  - **Back It In**: Saturday at BULKZILLA, a wholesale warehouse of everything
+    with a car park to match. Rows of perpendicular stalls, shopping carts loose
+    in the aisles (they roll when you hit them, and it counts as a ding), drivers
+    crawling the aisles hunting for spaces, shoppers crossing wherever they like,
+    and parked cars that back out without looking just as you come past. Reverse
+    into the marked stall so you finish nose out. Graded on moves vs. par, dings,
+    how close you got to the back of the stall, straightness, centering between
+    the lines, time and terrorised shoppers. Parking nose-in counts, at a price.
+    Difficulty sets how much elbow room the neighbours leave you.
   - **Race the AI**: you and an AI each have a spot on opposite sides of the street.
     First one parked wins. The AI gets better (and ruder) with difficulty.
   - **Wreck-reation**: two minutes until the cops arrive. Everything breaks: hydrants
@@ -92,6 +102,14 @@ turn it off or on.
     statue of the mayor. At the far end is a ramp: hit it straight for big air;
     land wrong and you flip, which ends the run. Press ENTER to file the claim early.
   - **Tutorial**: a one-minute guided intro. Runs automatically the first time.
+- **Driver's seat + backup camera**: the fourth camera (C). You sit in the car,
+  and every vehicle has its own cabin: fuzzy dice and a bobblehead in the Bean,
+  pizzas riding shotgun in the Za Wagon, a tablet zip-tied to the Shopping Kart,
+  a disco ball and champagne in the limo, a roll cage and a skull gear knob in the
+  Ground Pounder, and a crayon gallery in Big Yeller. The infotainment screen shows
+  the backup camera (mirrored, like the real thing) with guide lines that bend as
+  you steer and a parking sensor; the reversing beeper speeds up as you get close.
+  In New Zealand Mode the wheel moves to the right.
 - **New Zealand Mode**: a secret. Type `KIWI` on the main menu, or on a
   controller press right, left, right, left, X, X (do it again to switch it off).
   Opening the game with `?nz` on the end of the address also turns it on. It's
@@ -129,7 +147,7 @@ Mr. Scoops, Ground Pounder, Stretch Prince (a limo, good luck), The Weenie and
 Big Yeller (a school bus, which gets a bus-sized spot). Press C in the garage to
 open the **paint shop**. Progress and paint jobs are saved in the browser.
 
-**Trophies**: 32 achievements worth 100 points each, from "park a car" to
+**Trophies**: 36 achievements worth 100 points each, from "park a car" to
 "three stars on every Career level". They pop up as toasts when earned.
 
 ## Code layout
@@ -138,6 +156,7 @@ open the **paint shop**. Progress and paint jobs are saved in the browser.
   - `physics.js`: small 2D oriented-box rigid body physics.
   - `vehicles.js`: vehicle specs and the bicycle-model driving (grip, nitro).
   - `level.js`: street layout (`leftHand` mirrors it), parked cars, gaps, props, difficulty, hazards.
+  - `lot.js`: the car park: stalls, medians, carts, leavers, and judging a park in a stall.
   - `mods.js`: the hazard definitions.
   - `world.js`: steps the sim, collisions, dings, curb hops, smashing, combos,
     earthquakes, the shrinking spot, park detection.
@@ -145,12 +164,14 @@ open the **paint shop**. Progress and paint jobs are saved in the browser.
     jumps, pitch/roll and flip detection, layered on the flat 2D sim.
   - `traffic.js`, `peds.js`: the NPC drivers and pedestrians.
   - `ai.js`: parking planner + driver (used by the race AI and the instructor demo).
+  - `lotai.js`: the same for backing into a stall (planner, driver, and `makeDriver`, which picks one).
   - `grading.js`: scores and instructor quips.
   - `career.js`, `achievements.js`: the level list and the trophies.
 - `src/render/`: Three.js view, blocky models, debris/particles, and the
   post-process (low-res render, outlines, colour grade). `looks.js` holds the
   two colour styles: modern (default) and classic 64-colour EGA dithering.
   Everything is authored in EGA colours and remapped for the modern look.
+  `lot.js` builds the car park scenery; `interior.js` the cabins and the backup camera screen.
 - `src/main.js`: menus, HUD, modes, progression. `src/audio.js`: synthesized sounds.
 
 ## Tests
@@ -161,5 +182,6 @@ npm test
 
 Runs the AI on every vehicle at every difficulty, keeping right and keeping left,
 and checks it parks with no dings and within par (if the AI can do it, the spot
-is fair for a human), checks every Career level is parkable on both sides, soaks the traffic and pedestrians for a minute, and
-checks the shrinking spot stays parkable.
+is fair for a human), checks every Career level is parkable on both sides, soaks the traffic and pedestrians for a minute,
+checks the shrinking spot stays parkable, backs every vehicle into a car park
+stall at every difficulty on both sides, and soaks a busy car park for a minute.
